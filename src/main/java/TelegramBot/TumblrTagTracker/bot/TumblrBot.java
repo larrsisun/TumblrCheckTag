@@ -4,17 +4,20 @@ package TelegramBot.TumblrTagTracker.bot;
 import TelegramBot.TumblrTagTracker.bot.commands.Command;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+@Component
 public class TumblrBot extends TelegramLongPollingBot {
     private final String botToken;
     private final String botUsername;
@@ -45,19 +48,22 @@ public class TumblrBot extends TelegramLongPollingBot {
         Message message = update.getMessage();
         Long chatId = message.getChatId();
         String text = message.getText().trim();
+        SendMessage messageForUser = new SendMessage();
 
         // Проверяем, является ли сообщение командой
         if (!text.startsWith("/")) {
+            messageForUser.setText("Извините, я умею понимать только команды и не могу с вами пообщаться!");
             return;
         }
 
         // Парсим команду и аргументы
-        String[] parts = text.split("\\s+");
-        String commandName = parts[0].toLowerCase(); // "/filter"
-        String[] args = Arrays.copyOfRange(parts, 1, parts.length); // ["add", "art", "memes"]
+        String[] parts = parseArguments(text);
+        String commandName = parts[0].toLowerCase(); // "/tag"
+        String[] args = Arrays.copyOfRange(parts, 1, parts.length); // ["add", "lord of the mysteries", "fanart"]
 
         // Ищем команду
         Command command = commandMap.get(commandName);
+
 
         if (command == null) {
             sendUnknownCommandMessage(chatId);
@@ -96,5 +102,36 @@ public class TumblrBot extends TelegramLongPollingBot {
     @Override
     public String getBotToken() {
         return botToken;
+    }
+
+    /**
+     * Парсит строку команды, учитывая кавычки для многословных аргументов.
+     * Например: "/tag add \"lord of the mysteries\" fanart" -> ["/tag", "add", "lord of the mysteries", "fanart"]
+     */
+    private String[] parseArguments(String text) {
+        List<String> args = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+
+            if (c == '"') {
+                inQuotes = !inQuotes;
+            } else if (c == ' ' && !inQuotes) {
+                if (current.length() > 0) {
+                    args.add(current.toString());
+                    current.setLength(0);
+                }
+            } else {
+                current.append(c);
+            }
+        }
+
+        if (current.length() > 0) {
+            args.add(current.toString());
+        }
+
+        return args.toArray(new String[0]);
     }
 }

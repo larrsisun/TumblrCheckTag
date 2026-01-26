@@ -1,9 +1,13 @@
 package TelegramBot.TumblrTagTracker.dto;
 
 import com.tumblr.jumblr.types.Post;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.util.List;
 
+@Setter
+@Getter
 public class TumblrPostDTO {
     private String id;
     private String blogName;
@@ -17,36 +21,87 @@ public class TumblrPostDTO {
     private String sourceUrl; // для ссылок
 
     public String getFormattedMessage() {
-
         StringBuilder stringBuilder = new StringBuilder();
 
-        if (tags != null && !tags.isEmpty()) {
-            stringBuilder.append("Теги: ").append(String.join(", ", tags)).append("\n");
+        // Описание поста (заголовок или текст)
+        String description = getCleanText();
+        if (description != null && !description.trim().isEmpty()) {
+            // Ограничиваем длину описания
+            if (description.length() > 500) {
+                description = description.substring(0, 497) + "...";
+            }
+            stringBuilder.append(escapeMarkdown(description.trim()));
+            stringBuilder.append("\n\n");
         }
 
-        // Заголовок или саммари
-        String title = summary != null && !summary.isEmpty() ? summary :
-                (body != null && body.length() > 100 ? body.substring(0, 100) + "..." : body);
-
-        if (title != null && !title.isEmpty()) {
-            stringBuilder.append("*").append(escapeMarkdown(title)).append("*\n");
+        // Теги (опционально, можно убрать если не нужны)
+        if (tags != null && !tags.isEmpty() && tags.size() <= 5) {
+            stringBuilder.append("🏷 ");
+            stringBuilder.append(String.join(", ", tags));
+            stringBuilder.append("\n");
         }
 
         // Ссылка на пост
         if (postURL != null) {
-            stringBuilder.append("\n[Ссылка на пост](").append(postURL).append(")");
-        }
-
-        // Ссылка на источник (для фото/ссылок)
-        if (sourceUrl != null && !sourceUrl.equals(postURL) && !sourceUrl.contains("tumblr.com")) {
-            stringBuilder.append(" | [Ссылка на контент](").append(sourceUrl).append(")");
+            stringBuilder.append("\n[📎 Открыть пост](").append(postURL).append(")");
         }
 
         return stringBuilder.toString();
     }
 
+    /**
+     * Извлекает чистый текст из HTML, убирая все теги
+     */
+    public String getCleanText() {
+        String text = null;
+        
+        if (summary != null && !summary.trim().isEmpty()) {
+            text = summary;
+        } else if (body != null && !body.trim().isEmpty()) {
+            text = body;
+        }
+        
+        if (text == null) {
+            return null;
+        }
+        
+        // Убираем HTML теги
+        text = stripHtmlTags(text);
+        
+        // Убираем лишние пробелы и переносы строк
+        text = text.replaceAll("\\s+", " ").trim();
+        
+        return text;
+    }
+
+    /**
+     * Удаляет HTML теги из текста
+     */
+    private String stripHtmlTags(String html) {
+        if (html == null) {
+            return null;
+        }
+        
+        // Удаляем все HTML теги
+        String text = html.replaceAll("<[^>]+>", "");
+        
+        // Декодируем HTML entities
+        text = text.replace("&nbsp;", " ")
+                   .replace("&amp;", "&")
+                   .replace("&lt;", "<")
+                   .replace("&gt;", ">")
+                   .replace("&quot;", "\"")
+                   .replace("&#39;", "'")
+                   .replace("&apos;", "'");
+        
+        return text;
+    }
+
     private String escapeMarkdown(String text) {
-        // Экранируем специальные символы MarkdownV2 для Telegram
+        if (text == null) {
+            return "";
+        }
+        // Экранируем специальные символы Markdown для Telegram
         return text.replace("_", "\\_")
                 .replace("*", "\\*")
                 .replace("[", "\\[")
@@ -66,84 +121,31 @@ public class TumblrPostDTO {
                 .replace(".", "\\.")
                 .replace("!", "\\!");
     }
-
-    public String getBlogName() {
-        return blogName;
+    
+    /**
+     * Извлекает URL первого изображения из HTML body (для TEXT постов с изображениями)
+     */
+    public String extractImageUrlFromBody() {
+        if (body == null || body.isEmpty()) {
+            return null;
+        }
+        
+        // Ищем img теги
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            "<img[^>]+src=[\"']([^\"']+)[\"'][^>]*>",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        java.util.regex.Matcher matcher = pattern.matcher(body);
+        
+        if (matcher.find()) {
+            String imageUrl = matcher.group(1);
+            // Проверяем, что это действительно URL изображения
+            if (imageUrl != null && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))) {
+                return imageUrl;
+            }
+        }
+        
+        return null;
     }
 
-    public void setBlogName(String blogName) {
-        this.blogName = blogName;
-    }
-
-    public String getBody() {
-        return body;
-    }
-
-    public void setBody(String body) {
-        this.body = body;
-    }
-
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getPhotoUrl() {
-        return photoUrl;
-    }
-
-    public void setPhotoUrl(String photoUrl) {
-        this.photoUrl = photoUrl;
-    }
-
-    public String getPostURL() {
-        return postURL;
-    }
-
-    public void setPostURL(String postURL) {
-        this.postURL = postURL;
-    }
-
-    public String getSourceUrl() {
-        return sourceUrl;
-    }
-
-    public void setSourceUrl(String sourceUrl) {
-        this.sourceUrl = sourceUrl;
-    }
-
-    public String getSummary() {
-        return summary;
-    }
-
-    public void setSummary(String summary) {
-        this.summary = summary;
-    }
-
-    public List<String> getTags() {
-        return tags;
-    }
-
-    public void setTags(List<String> tags) {
-        this.tags = tags;
-    }
-
-    public Long getTimestamp() {
-        return timestamp;
-    }
-
-    public void setTimestamp(Long timestamp) {
-        this.timestamp = timestamp;
-    }
-
-    public Post.PostType getType() {
-        return type;
-    }
-
-    public void setType(Post.PostType type) {
-        this.type = type;
-    }
 }

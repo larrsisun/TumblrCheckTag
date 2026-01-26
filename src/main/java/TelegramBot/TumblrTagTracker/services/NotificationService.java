@@ -32,11 +32,11 @@ public class NotificationService {
 
         try {
             String message = post.getFormattedMessage();
-            // Если есть фото URL, отправляем фото с подписью
-            if (post.getPhotoUrl() != null && !post.getPhotoUrl().isEmpty()) {
-                sendPhotoWithCaption(chatID, post.getPhotoUrl(), message);
-            } else if (isImageUrl(post.getSourceUrl())) {
-                sendPhotoWithCaption(chatID, post.getSourceUrl(), message);
+            String imageUrl = getImageUrl(post);
+            
+            // Если есть изображение, отправляем фото с подписью
+            if (imageUrl != null && !imageUrl.isEmpty()) {
+                sendPhotoWithCaption(chatID, imageUrl, message);
             } else {
                 sendTextMessage(chatID, message);
             }
@@ -45,8 +45,9 @@ public class NotificationService {
             log.info("Пост {} отправлен человеку {}", post.getId(), chatID);
 
         } catch (TelegramApiException e) {
-            log.error("Не удалось отправить пост {} человеку {}", post.getId(), chatID);
+            log.error("Не удалось отправить пост {} человеку {}: {}", post.getId(), chatID, e.getMessage());
             try {
+                // Fallback: отправляем простым текстом
                 sendTextMessage(chatID, post.getFormattedMessage());
                 redisCacheService.markAsSent(post.getId());
                 log.info("Пост {} отправлен человеку {} простым текстом", post.getId(), chatID);
@@ -54,6 +55,29 @@ public class NotificationService {
                 log.error("Не удалось отправить ни обычный, ни текстовый пост {} человеку {}", post.getId(), chatID);
             }
         }
+    }
+    
+    /**
+     * Определяет URL изображения для поста
+     */
+    private String getImageUrl(TumblrPostDTO post) {
+        // Для PHOTO постов используем photoUrl
+        if (post.getPhotoUrl() != null && !post.getPhotoUrl().isEmpty()) {
+            return post.getPhotoUrl();
+        }
+        
+        // Для TEXT постов пытаемся извлечь изображение из HTML
+        String imageFromBody = post.extractImageUrlFromBody();
+        if (imageFromBody != null && !imageFromBody.isEmpty()) {
+            return imageFromBody;
+        }
+        
+        // Проверяем sourceUrl, если это изображение
+        if (post.getSourceUrl() != null && isImageUrl(post.getSourceUrl())) {
+            return post.getSourceUrl();
+        }
+        
+        return null;
     }
 
     private void sendTextMessage(Long chatID, String text) throws TelegramApiException {
@@ -77,26 +101,34 @@ public class NotificationService {
 
         photo.setPhoto(inputFile);
 
-        if (caption.length() > 1024) {
-            caption = caption.substring(0, 1000) + "...";
+        // Ограничиваем длину подписи (Telegram ограничение: 1024 символа)
+        if (caption != null && caption.length() > 1024) {
+            caption = caption.substring(0, 1021) + "...";
         }
-        photo.setCaption(caption);
-        photo.setParseMode("Markdown");
+        
+        if (caption != null && !caption.trim().isEmpty()) {
+            photo.setCaption(caption);
+            photo.setParseMode("Markdown");
+        }
 
         bot.execute(photo);
-
     }
 
     private boolean isImageUrl(String url) {
-        if (url == null) {
+        if (url == null || url.isEmpty()) {
             return false;
         }
 
         String lowerUrl = url.toLowerCase();
-        return lowerUrl.matches(".*\\.(jpg|jpeg|png|gif|bmp|webp)$") ||
-                lowerUrl.contains("imgur.com") ||
-                lowerUrl.contains("tumblr.com") ||
-                lowerUrl.contains("media.tumblr.com");
+        // Проверяем расширение файла
+        if (lowerUrl.matches(".*\\.(jpg|jpeg|png|gif|bmp|webp)(\\?.*)?$")) {
+            return true;
+        }
+        // Проверяем домены, которые обычно содержат изображения
+        return lowerUrl.contains("media.tumblr.com") ||
+               lowerUrl.contains("tumblr.com/photo") ||
+               lowerUrl.contains("imgur.com") ||
+               lowerUrl.contains("i.imgur.com");
     }
 
     public void clearCache() {

@@ -24,16 +24,19 @@ public class HelpCommand implements Command {
             /tag list - Показать текущие теги
             
             *Примеры использования тегов:*
-            • `/tag add lordofmysteries fanart` - получать посты с тегами lordofmysteries и fanart
+            • `/tag add "lord of the mysteries" fanart` - получать посты с тегами "lord of the mysteries" и fanart (используйте кавычки для тегов с пробелами)
+            • `/tag add lordofmysteries art` - добавить теги без пробелов
             • `/tag add art` - добавить тег art к текущим тегам
+            • `/tag remove "lord of the mysteries"` - перестать получать посты с тегом "lord of the mysteries"
             • `/tag remove fanart` - перестать получать посты с тегом fanart
             • `/tag clear` - очистить все теги (перестать получать посты)
-            • `/tag lordofmysteries art` - установить только эти теги
+            • `/tag "lord of the mysteries" art` - установить только эти теги
             
             *Справка по тегам:*
             • Без тегов вы не будете получать посты
             • Добавьте хотя бы один тег для получения уведомлений
             • Поиск идет по всем указанным тегам (OR логика)
+            • Для тегов с пробелами используйте кавычки: `/tag add "lord of the mysteries"`
             
             
             *Проблемы?*

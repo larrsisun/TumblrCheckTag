@@ -70,11 +70,12 @@ public class TagCommand implements Command {
         }
 
         message.append("\n*Примеры использования:* \n");
-        message.append("`/tag add lordofmysteries fanart` - добавить теги\n");
+        message.append("`/tag add \"lord of the mysteries\" ersatz` - добавить теги (используйте кавычки для многословных тегов)\n");
+        message.append("`/tag add lordofmysteries art` - добавить теги без пробелов\n");
         message.append("`/tag remove fanart` - убрать тег\n");
         message.append("`/tag clear` - очистить все теги\n");
-        message.append("`/tag lordofmysteries art` - установить только эти теги\n");
-        message.append("\n*Примечание:* Без тегов вы не будете получать посты. Добавьте хотя бы один тег для получения уведомлений.");
+        message.append("`/tag \"lord of the mysteries\" art` - установить только эти теги\n");
+        message.append("\n*Примечание:* Для тегов с пробелами используйте кавычки: `/tag add \"lord of the mysteries\"`. Для однословных тегов можно не использовать кавычки. Без тегов вы не будете получать посты.");
 
         response.setText(message.toString());
         response.setParseMode("Markdown");
@@ -87,7 +88,8 @@ public class TagCommand implements Command {
         }
 
         if (tagNames.length == 0) {
-            response.setText("Укажите теги для добавления в формате `/tag add [тег1] [тег2] ...`.");
+            response.setText("Укажите теги для добавления в формате `/tag add [тег1] [тег2] ...`.\n" +
+                    "Для тегов с пробелами используйте кавычки: `/tag add \"lord of the mysteries\"`");
             response.setParseMode("Markdown");
             return;
         }
@@ -120,7 +122,8 @@ public class TagCommand implements Command {
 
     private void removeTags(Long chatID, String[] tagNames, SendMessage response) {
         if (tagNames.length == 0) {
-            response.setText("Укажите теги для удаления в формате `/tag remove [тег1] [тег2] ...`.");
+            response.setText("Укажите теги для удаления в формате `/tag remove [тег1] [тег2] ...`.\n" +
+                    "Для тегов с пробелами используйте кавычки: `/tag remove \"lord of the mysteries\"`");
             response.setParseMode("Markdown");
             return;
         }

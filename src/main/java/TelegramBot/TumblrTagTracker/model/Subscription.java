@@ -34,13 +34,11 @@ public class Subscription {
 
     @Setter
     @Getter
-    @ElementCollection
     @CollectionTable(
             name = "subscription_tags",
             joinColumns = @JoinColumn(name = "subscription_id")
     )
     @Column(name = "tag")
-    @Enumerated(EnumType.STRING)
     private Set<String> tags = new HashSet<>();
 
     public Subscription() {
@@ -54,13 +52,6 @@ public class Subscription {
         this.isActive = true;
     }
 
-    public Set<String> getTags() {
-        return tags != null ? tags : new HashSet<>();
-    }
-
-    public void setTags(Set<String> tags) {
-        this.tags = tags != null ? tags : new HashSet<>();
-    }
 
     public Boolean getActive() {
         return isActive;

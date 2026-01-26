@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -16,11 +17,12 @@ import java.util.List;
 import java.util.Set;
 
 @Component
+@EnableScheduling
 public class TumblrCheckSchedule {
 
     private static final Logger log = LoggerFactory.getLogger(TumblrCheckSchedule.class);
 
-    @Value("${notification.delay.between.posts.ms:500}") // 0.5 секунды между постами
+    @Value("${notification.delay.between.posts.ms:50000}") // 0.5 секунды между постами
     private long delayBetweenPosts;
     @Value("${tumblr.check.interval.ms:300000}") // 5 минут по умолчанию
     private long checkIntervalMs;

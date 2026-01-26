@@ -109,7 +109,7 @@ public class SubscriptionService {
     }
 
     public List<Subscription> getAllActiveSubscriptions() {
-        return subscriptionRepository.findByIsActiveTrue();
+        return subscriptionRepository.findByIsActiveTrueWithTags();
     }
 
 }

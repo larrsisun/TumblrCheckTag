@@ -10,13 +10,13 @@ public class StartCommand implements Command
     @Override
     public void execute(Long chatID, String[] args, SendMessage response) {
         String welcomeMessage = """
-                Привет, я бот, который может присылать новые посты из сабреддита r/LordOfTheMysteries!
+                Привет, я бот, который может присылать новые посты из Тамблера по желаемым тегам!
                 
                 *Доступные команды*:\n 
                 /subscribe - подписаться на рассылку;\n
-                \n/unsubscribe - отписаться от рассылки;\n
-                \n/help - помощь по командам;\n
-                \n/filter - отфильтровать посты (если хочется видеть определённый контент);\n
+                /unsubscribe - отписаться от рассылки;\n
+                /help - помощь по командам;\n
+                /tag - инструкция по выбору тегов (нажмите после подписки);\n
                 
                 """;
 

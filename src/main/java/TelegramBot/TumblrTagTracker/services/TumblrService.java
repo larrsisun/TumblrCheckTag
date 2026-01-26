@@ -5,6 +5,7 @@ package TelegramBot.TumblrTagTracker.services;
 import TelegramBot.TumblrTagTracker.dto.TumblrPostDTO;
 import com.tumblr.jumblr.JumblrClient;
 import com.tumblr.jumblr.types.Post;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,8 +47,9 @@ public class TumblrService {
             try {
                 List<TumblrPostDTO> postsForTag = getPostsByTag(tag);
                 for (TumblrPostDTO post : postsForTag) {
-                    // Добавляем только если пост с таким ID еще не был добавлен
-                    allPostsMap.putIfAbsent(post.getId(), post);
+                    if (!cacheService.wasSent(post.getId())) {
+                        allPostsMap.putIfAbsent(post.getId(), post);
+                    }
                 }
             } catch (Exception e) {
                 log.error("Ошибка при получении постов по тегу {}", tag, e);
@@ -64,6 +66,7 @@ public class TumblrService {
     }
 
 
+    @CircuitBreaker(name = "tumblr", fallbackMethod = "fallbackGetPosts")
     private List<TumblrPostDTO> getPostsByTag(String tag) {
         log.debug("Запрос к Tumblr API по тегу: {}, лимит={}", tag, FETCH_LIMIT);
 
@@ -109,6 +112,11 @@ public class TumblrService {
                 com.tumblr.jumblr.types.TextPost textPost = (com.tumblr.jumblr.types.TextPost) post;
                 if (textPost.getBody() != null) {
                     dto.setBody(textPost.getBody());
+                    // Пытаемся извлечь изображение из HTML body
+                    String imageUrl = extractImageFromHtml(textPost.getBody());
+                    if (imageUrl != null) {
+                        dto.setPhotoUrl(imageUrl);
+                    }
                 }
                 if (textPost.getTitle() != null) {
                     dto.setSummary(textPost.getTitle());
@@ -158,5 +166,37 @@ public class TumblrService {
         return dto;
     }
 
+    /**
+     * Извлекает URL первого изображения из HTML
+     */
+    private String extractImageFromHtml(String html) {
+        if (html == null || html.isEmpty()) {
+            return null;
+        }
+        
+        // Ищем img теги с src атрибутом
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            "<img[^>]+src=[\"']([^\"']+)[\"'][^>]*>",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        java.util.regex.Matcher matcher = pattern.matcher(html);
+        
+        if (matcher.find()) {
+            String imageUrl = matcher.group(1);
+            // Проверяем, что это валидный URL изображения
+            if (imageUrl != null && 
+                (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) &&
+                (imageUrl.contains("media.tumblr.com") || 
+                 imageUrl.matches(".*\\.(jpg|jpeg|png|gif|bmp|webp)(\\?.*)?$"))) {
+                return imageUrl;
+            }
+        }
+        
+        return null;
+    }
 
+    private List<TumblrPostDTO> fallbackGetPosts(String tag, Exception e) {
+        log.warn("Tumblr API недоступен, используем fallback для тега {}", tag);
+        return Collections.emptyList();
+    }
 }
