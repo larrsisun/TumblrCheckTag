@@ -24,7 +24,7 @@ public class TumblrCheckSchedule {
 
     @Value("${notification.delay.between.posts.ms:50000}") // 0.5 секунды между постами
     private long delayBetweenPosts;
-    @Value("${tumblr.check.interval.ms:300000}") // 5 минут по умолчанию
+    @Value("${tumblr.check.interval.ms:3000}") // 5 минут по умолчанию
     private long checkIntervalMs;
     @Value("${notification.delay.between.users.ms:1000}") // 1 секунда между пользователями
     private long delayBetweenUsers;

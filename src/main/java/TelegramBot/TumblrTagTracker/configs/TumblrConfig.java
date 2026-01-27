@@ -22,8 +22,8 @@ public class TumblrConfig {
     public JumblrClient tumblrClient() {
 
         try {
-            JumblrClient client;
 
+            JumblrClient client;
             if (apiSecret != null && !apiSecret.trim().isEmpty()) {
                 client = new JumblrClient(apiKey, apiSecret);
             } else {

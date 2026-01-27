@@ -17,9 +17,8 @@ public class UnsubscribeCommand implements Command {
              response.setText("Вы не были подписаны!");
              return;
          }
-
          subscriptionService.unsubscribe(chatID);
-         response.setText("Вы отписались.");
+         response.setText("Вы отписались от рассылки.");
 
     }
 

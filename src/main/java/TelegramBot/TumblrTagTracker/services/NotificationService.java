@@ -130,9 +130,4 @@ public class NotificationService {
                lowerUrl.contains("imgur.com") ||
                lowerUrl.contains("i.imgur.com");
     }
-
-    public void clearCache() {
-        redisCacheService.clearSentPostsCache();
-        log.info("Отправленные посты почищены из кэша");
-    }
 }

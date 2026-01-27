@@ -32,7 +32,6 @@ public class SubscriptionService {
 
         try {
             Optional<Subscription> subscription = subscriptionRepository.findByChatID(chatID);
-
             if (subscription.isPresent()) {
                 Subscription sub = subscription.get();
                 if (Boolean.TRUE.equals(sub.getActive())) {

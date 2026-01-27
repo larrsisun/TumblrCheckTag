@@ -4,7 +4,7 @@ package TelegramBot.TumblrTagTracker.services;
 
 import TelegramBot.TumblrTagTracker.dto.TumblrPostDTO;
 import com.tumblr.jumblr.JumblrClient;
-import com.tumblr.jumblr.types.Post;
+import com.tumblr.jumblr.types.*;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -24,6 +26,8 @@ public class TumblrService {
     private final TumblrRateLimiterService rateLimiter;
 
     private final int FETCH_LIMIT = 20;
+    private static final int MIN_NOTES = 5; // Минимальное количество заметок
+
 
     @Autowired
     public TumblrService(JumblrClient tumblrClient, RedisCacheService cacheService, TumblrRateLimiterService rateLimiter) {
@@ -68,8 +72,6 @@ public class TumblrService {
 
     @CircuitBreaker(name = "tumblr", fallbackMethod = "fallbackGetPosts")
     private List<TumblrPostDTO> getPostsByTag(String tag) {
-        log.debug("Запрос к Tumblr API по тегу: {}, лимит={}", tag, FETCH_LIMIT);
-
         try {
             rateLimiter.waitForRateLimit();
 
@@ -81,14 +83,29 @@ public class TumblrService {
             List<Post> posts = tumblrClient.tagged(tag, options);
             log.debug("Получено {} постов из Tumblr API по тегу {}", posts.size(), tag);
 
-            return posts.stream()
+            List<TumblrPostDTO> filteredPosts = posts.stream()
+                    .filter(this::isPostValid)
                     .map(this::convertToDTO)
                     .collect(Collectors.toList());
+
+            log.debug("После фильтрации осталось {} постов по тегу {}", filteredPosts.size(), tag);
+            return filteredPosts;
 
         } catch (Exception e) {
             log.error("Ошибка при обращении к Tumblr API по тегу {}", tag, e);
             return Collections.emptyList();
         }
+    }
+
+    private boolean isPostValid(Post post) {
+        // Проверка количества лайков (noteCount включает в себя все взаимодействия: лайки, реблоги, комментарии)
+        Long noteCount = post.getNoteCount();
+        if (noteCount == null || noteCount <= MIN_NOTES) {
+            log.debug("Пост {} пропущен: недостаточно взаимодействий (noteCount: {})", post.getId(), noteCount);
+            return false;
+        }
+        log.debug("Пост {} прошёл фильтрацию (noteCount: {}, timestamp: {})", post.getId(), noteCount, post.getTimestamp());
+        return true;
     }
 
     private TumblrPostDTO convertToDTO(Post post) {
@@ -109,13 +126,17 @@ public class TumblrService {
         // В зависимости от типа поста извлекаем разные данные
         switch (post.getType()) {
             case Post.PostType.TEXT:
-                com.tumblr.jumblr.types.TextPost textPost = (com.tumblr.jumblr.types.TextPost) post;
+                TextPost textPost = (TextPost) post;
                 if (textPost.getBody() != null) {
                     dto.setBody(textPost.getBody());
-                    // Пытаемся извлечь изображение из HTML body
                     String imageUrl = extractImageFromHtml(textPost.getBody());
+                    String videoUrl = extractTumblrVideoFromHtml(textPost.getBody());
                     if (imageUrl != null) {
                         dto.setPhotoUrl(imageUrl);
+                    }
+
+                    if (videoUrl != null) {
+                        dto.setVideoUrl(videoUrl);
                     }
                 }
                 if (textPost.getTitle() != null) {
@@ -123,9 +144,9 @@ public class TumblrService {
                 }
                 break;
             case Post.PostType.PHOTO:
-                com.tumblr.jumblr.types.PhotoPost photoPost = (com.tumblr.jumblr.types.PhotoPost) post;
+                PhotoPost photoPost = (PhotoPost) post;
                 if (photoPost.getPhotos() != null && !photoPost.getPhotos().isEmpty()) {
-                    com.tumblr.jumblr.types.Photo photo = photoPost.getPhotos().get(0);
+                    Photo photo = photoPost.getPhotos().get(0);
                     if (photo != null && photo.getOriginalSize() != null) {
                         dto.setPhotoUrl(photo.getOriginalSize().getUrl());
                     }
@@ -138,7 +159,7 @@ public class TumblrService {
                 }
                 break;
             case Post.PostType.QUOTE:
-                com.tumblr.jumblr.types.QuotePost quotePost = (com.tumblr.jumblr.types.QuotePost) post;
+                QuotePost quotePost = (QuotePost) post;
                 if (quotePost.getText() != null) {
                     dto.setBody(quotePost.getText());
                 }
@@ -147,7 +168,7 @@ public class TumblrService {
                 }
                 break;
             case Post.PostType.LINK:
-                com.tumblr.jumblr.types.LinkPost linkPost = (com.tumblr.jumblr.types.LinkPost) post;
+                LinkPost linkPost = (LinkPost) post;
                 if (linkPost.getTitle() != null) {
                     dto.setSummary(linkPost.getTitle());
                 }
@@ -166,20 +187,17 @@ public class TumblrService {
         return dto;
     }
 
-    /**
-     * Извлекает URL первого изображения из HTML
-     */
     private String extractImageFromHtml(String html) {
         if (html == null || html.isEmpty()) {
             return null;
         }
         
         // Ищем img теги с src атрибутом
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+        Pattern pattern = Pattern.compile(
             "<img[^>]+src=[\"']([^\"']+)[\"'][^>]*>",
-            java.util.regex.Pattern.CASE_INSENSITIVE
+            Pattern.CASE_INSENSITIVE
         );
-        java.util.regex.Matcher matcher = pattern.matcher(html);
+        Matcher matcher = pattern.matcher(html);
         
         if (matcher.find()) {
             String imageUrl = matcher.group(1);
@@ -192,6 +210,33 @@ public class TumblrService {
             }
         }
         
+        return null;
+    }
+
+    private String extractTumblrVideoFromHtml(String html) {
+        if (html == null || html.isEmpty()) {
+            return null;
+        }
+
+        // Сначала ищем в тегах video
+        Pattern pattern = Pattern.compile(
+                "<video[^>]+src=[\"']([^\"']+)[\"'][^>]*>",
+                Pattern.CASE_INSENSITIVE
+        );
+        Matcher matcher = pattern.matcher(html);
+
+        if (matcher.find()) {
+            String videoUrl = matcher.group(1);
+            // Проверяем, что это валидный URL видео с Tumblr
+            if (videoUrl != null &&
+                    (videoUrl.startsWith("http://") || videoUrl.startsWith("https://")) &&
+                    (videoUrl.contains("media.tumblr.com") ||
+                            videoUrl.contains("video.tumblr.com") ||
+                            videoUrl.matches(".*\\.(mp4|webm|mov)(\\?.*)?$"))) {
+                return videoUrl;
+            }
+        }
+
         return null;
     }
 

@@ -5,6 +5,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Setter
 @Getter
@@ -18,6 +20,7 @@ public class TumblrPostDTO {
     private Long timestamp;
     private Post.PostType type; // text, photo, quote, link, chat, audio, video, answer
     private String photoUrl; // для фото постов
+    private String videoUrl;
     private String sourceUrl; // для ссылок
 
     public String getFormattedMessage() {
@@ -131,11 +134,11 @@ public class TumblrPostDTO {
         }
         
         // Ищем img теги
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+        Pattern pattern = java.util.regex.Pattern.compile(
             "<img[^>]+src=[\"']([^\"']+)[\"'][^>]*>",
             java.util.regex.Pattern.CASE_INSENSITIVE
         );
-        java.util.regex.Matcher matcher = pattern.matcher(body);
+        Matcher matcher = pattern.matcher(body);
         
         if (matcher.find()) {
             String imageUrl = matcher.group(1);
