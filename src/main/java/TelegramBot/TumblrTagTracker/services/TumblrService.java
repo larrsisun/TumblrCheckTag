@@ -24,16 +24,17 @@ public class TumblrService {
     private final JumblrClient tumblrClient;
     private final RedisCacheService cacheService;
     private final TumblrRateLimiterService rateLimiter;
+    private final PostTrackingService postTrackingService;
 
     private final int FETCH_LIMIT = 20;
-    private static final int MIN_NOTES = 5; // Минимальное количество заметок
 
 
     @Autowired
-    public TumblrService(JumblrClient tumblrClient, RedisCacheService cacheService, TumblrRateLimiterService rateLimiter) {
+    public TumblrService(JumblrClient tumblrClient, RedisCacheService cacheService, TumblrRateLimiterService rateLimiter, PostTrackingService postTrackingService) {
         this.tumblrClient = tumblrClient;
         this.cacheService = cacheService;
         this.rateLimiter = rateLimiter;
+        this.postTrackingService = postTrackingService;
     }
 
     public List<TumblrPostDTO> getNewPostsByTags(Set<String> tags) {
@@ -69,6 +70,40 @@ public class TumblrService {
         return newPosts;
     }
 
+    public void updateTrackedPostsMetrics(Set<String> tags) {
+        log.info("Обновление метрик для отслеживаемых постов по тегам: {}", tags);
+
+        // Получаем посты для повторной проверки
+        var postsToRecheck = postTrackingService.findPostsForRecheck();
+
+        if (postsToRecheck.isEmpty()) {
+            log.debug("Нет постов для обновления метрик");
+            return;
+        }
+
+        log.info("Обновление метрик для {} постов", postsToRecheck.size());
+
+        // Для каждого тега получаем свежие данные
+        for (String tag : tags) {
+            try {
+                List<TumblrPostDTO> freshPosts = getPostsByTag(tag);
+
+                // Обновляем метрики для отслеживаемых постов
+                for (var trackedPost : postsToRecheck) {
+                    freshPosts.stream()
+                            .filter(p -> p.getId().equals(trackedPost.getPostId()))
+                            .findFirst()
+                            .ifPresent(freshPost -> {
+                                log.debug("Обновлены метрики для поста {}: {} заметок",
+                                        freshPost.getId(), freshPost.getNoteCount());
+                                postTrackingService.shouldSendPostNow(freshPost); // это обновит метрики
+                            });
+                }
+            } catch (Exception e) {
+                log.error("Ошибка при обновлении метрик для тега {}", tag, e);
+            }
+        }
+    }
 
     @CircuitBreaker(name = "tumblr", fallbackMethod = "fallbackGetPosts")
     private List<TumblrPostDTO> getPostsByTag(String tag) {
@@ -84,7 +119,6 @@ public class TumblrService {
             log.debug("Получено {} постов из Tumblr API по тегу {}", posts.size(), tag);
 
             List<TumblrPostDTO> filteredPosts = posts.stream()
-                    .filter(this::isPostValid)
                     .map(this::convertToDTO)
                     .collect(Collectors.toList());
 
@@ -95,17 +129,6 @@ public class TumblrService {
             log.error("Ошибка при обращении к Tumblr API по тегу {}", tag, e);
             return Collections.emptyList();
         }
-    }
-
-    private boolean isPostValid(Post post) {
-        // Проверка количества лайков (noteCount включает в себя все взаимодействия: лайки, реблоги, комментарии)
-        Long noteCount = post.getNoteCount();
-        if (noteCount == null || noteCount <= MIN_NOTES) {
-            log.debug("Пост {} пропущен: недостаточно взаимодействий (noteCount: {})", post.getId(), noteCount);
-            return false;
-        }
-        log.debug("Пост {} прошёл фильтрацию (noteCount: {}, timestamp: {})", post.getId(), noteCount, post.getTimestamp());
-        return true;
     }
 
     private TumblrPostDTO convertToDTO(Post post) {

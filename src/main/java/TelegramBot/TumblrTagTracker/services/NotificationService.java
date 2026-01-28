@@ -4,12 +4,15 @@ import TelegramBot.TumblrTagTracker.dto.TumblrPostDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+
+import java.util.concurrent.CompletableFuture;
 
 @Service
 public class NotificationService {
@@ -25,9 +28,20 @@ public class NotificationService {
         this.redisCacheService = redisCacheService;
     }
 
-    public void sendPostToUser(Long chatID, TumblrPostDTO post) {
+    @Async("notificationExecutor")
+    public CompletableFuture<Boolean> sendPostToUserAsync(Long chatID, TumblrPostDTO post) {
+        try {
+            boolean sent = sendPostToUser(chatID, post);
+            return CompletableFuture.completedFuture(sent);
+        } catch (Exception e) {
+            log.error("Unexpected error sending post {} to user {}", post.getId(), chatID, e);
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    public boolean sendPostToUser(Long chatID, TumblrPostDTO post) {
         if (redisCacheService.wasSent(post.getId())) {
-            return;
+            return false;
         }
 
         try {
@@ -43,6 +57,7 @@ public class NotificationService {
 
             redisCacheService.markAsSent(post.getId());
             log.info("Пост {} отправлен человеку {}", post.getId(), chatID);
+            return true;
 
         } catch (TelegramApiException e) {
             log.error("Не удалось отправить пост {} человеку {}: {}", post.getId(), chatID, e.getMessage());
@@ -51,8 +66,10 @@ public class NotificationService {
                 sendTextMessage(chatID, post.getFormattedMessage());
                 redisCacheService.markAsSent(post.getId());
                 log.info("Пост {} отправлен человеку {} простым текстом", post.getId(), chatID);
+                return  true;
             } catch (TelegramApiException ex) {
                 log.error("Не удалось отправить ни обычный, ни текстовый пост {} человеку {}", post.getId(), chatID);
+                return false;
             }
         }
     }

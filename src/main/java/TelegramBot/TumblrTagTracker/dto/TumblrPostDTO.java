@@ -22,6 +22,7 @@ public class TumblrPostDTO {
     private String photoUrl; // для фото постов
     private String videoUrl;
     private String sourceUrl; // для ссылок
+    private String noteCount;
 
     public String getFormattedMessage() {
         StringBuilder stringBuilder = new StringBuilder();

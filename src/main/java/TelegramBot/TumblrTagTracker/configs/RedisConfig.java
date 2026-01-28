@@ -20,6 +20,32 @@ import java.time.Duration;
 @EnableCaching
 public class RedisConfig {
 
+    @Value("${spring.data.redis.host}")
+    private String redisHost;
+
+    @Value("${spring.data.redis.port}")
+    private int redisPort;
+
+    @Value("${spring.data.redis.password}")
+    private String redisPassword;
+
+    @Value("${spring.data.redis.database:0}")
+    private int redisDatabase;
+
+    /**
+     * Настройка подключения к Redis
+     */
+    @Bean
+    public LettuceConnectionFactory redisConnectionFactory() {
+        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
+        config.setHostName(redisHost);
+        config.setPort(redisPort);
+        config.setPassword(redisPassword);
+        config.setDatabase(redisDatabase);
+
+        return new LettuceConnectionFactory(config);
+    }
+
     @Bean
     public RedisTemplate<String, String> redisTemplate(RedisConnectionFactory connectionFactory) {
         RedisTemplate<String, String> template = new RedisTemplate<>();
