@@ -72,7 +72,7 @@ public class NotificationService {
             return true;
 
         } catch (TelegramApiException e) {
-            log.error("Не удалось отправить пост {} человеку {}: {}", post.getId(), chatID, e.getMessage());
+            log.error("Не удалось отправить пост {} человеку {}", post.getId(), chatID, e);
             try {
                 // Fallback: отправляем простым текстом
                 sendTextMessage(chatID, post.getFormattedMessage());
@@ -80,7 +80,7 @@ public class NotificationService {
                 log.info("Пост {} отправлен человеку {} простым текстом", post.getId(), chatID);
                 return  true;
             } catch (TelegramApiException ex) {
-                log.error("Не удалось отправить ни обычный, ни текстовый пост {} человеку {}", post.getId(), chatID);
+                log.error("Не удалось отправить ни обычный, ни текстовый пост {} человеку {}", post.getId(), chatID, ex);
                 return false;
             }
         }

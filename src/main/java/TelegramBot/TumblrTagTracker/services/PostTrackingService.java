@@ -50,6 +50,11 @@ public class PostTrackingService {
             TrackedPost tracked = trackedPost.get();
             trackedPostRepository.save(tracked);
 
+            if (post.getNoteCount() != null) {
+                tracked.setNoteCount(Integer.parseInt(post.getNoteCount()));
+            }
+            tracked.setLastCheckedAt(LocalDateTime.now());
+
             // Проверяем условия отправки
             boolean meetsThreshold = tracked.meetsMinimumThreshold(minimumNotes);
             boolean oldEnough = tracked.isOldEnough(minimumAgeHours);
@@ -64,6 +69,9 @@ public class PostTrackingService {
         } else {
             // Первый раз видим этот пост - сохраняем для отслеживания
             TrackedPost newTracked = createTrackedPost(post);
+            if (post.getNoteCount() != null) {
+                newTracked.setNoteCount(Integer.parseInt(post.getNoteCount()));
+            }
             trackedPostRepository.save(newTracked);
 
             // Проверяем, можем ли отправить сразу

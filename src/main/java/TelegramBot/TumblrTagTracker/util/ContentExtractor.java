@@ -24,7 +24,7 @@ public class ContentExtractor {
                 return Optional.of(imageUrl);
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     public Optional<String> extractFirstVideoUrl(String html) {
@@ -41,7 +41,7 @@ public class ContentExtractor {
                 return Optional.of(videoUrl);
             }
         }
-        return null;
+        return Optional.empty();
     }
 
     private boolean isValidImageUrl(String url) {
