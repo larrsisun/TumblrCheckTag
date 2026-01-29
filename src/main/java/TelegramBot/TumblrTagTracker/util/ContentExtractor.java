@@ -10,9 +10,9 @@ import java.util.regex.Pattern;
 @Component
 public class ContentExtractor {
 
-    public String extractFirstImageUrl(String html) {
+    public Optional<String> extractFirstImageUrl(String html) {
         if (html == null || html.isEmpty()) {
-            return Collections.emptyList().toString();
+            return Optional.empty();
         }
 
         Pattern pattern = Pattern.compile("<img[^>]+src=[\"']([^\"']+)[\"'][^>]*>", Pattern.CASE_INSENSITIVE);
@@ -21,15 +21,15 @@ public class ContentExtractor {
         if (matcher.find()) {
             String imageUrl = matcher.group(1);
             if (isValidImageUrl(imageUrl)) {
-                return imageUrl;
+                return Optional.of(imageUrl);
             }
         }
-        return Collections.emptyList().toString();
+        return null;
     }
 
-    public String extractFirstVideoUrl(String html) {
+    public Optional<String> extractFirstVideoUrl(String html) {
         if (html == null || html.isEmpty()) {
-            return Collections.emptyList().toString();
+            return Optional.empty();
         }
 
         Pattern pattern = Pattern.compile("<video[^>]+src=[\"']([^\"']+)[\"'][^>]*>", Pattern.CASE_INSENSITIVE);
@@ -38,10 +38,10 @@ public class ContentExtractor {
         if (matcher.find()) {
             String videoUrl = matcher.group(1);
             if (isValidVideoUrl(videoUrl)) {
-                return videoUrl;
+                return Optional.of(videoUrl);
             }
         }
-        return Collections.emptyList().toString();
+        return null;
     }
 
     private boolean isValidImageUrl(String url) {

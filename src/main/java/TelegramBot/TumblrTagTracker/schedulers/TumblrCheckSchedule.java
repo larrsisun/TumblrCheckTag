@@ -48,7 +48,7 @@ public class TumblrCheckSchedule {
         this.postTrackingService = postTrackingService;
     }
 
-    @Scheduled(fixedDelay = 600000) // 10 минут
+    @Scheduled(fixedDelay = 600000)
     public void checkForNewPosts() {
         try {
             List<Subscription> activeSubscriptions = subscriptionService.getAllActiveSubscriptions();
@@ -90,7 +90,7 @@ public class TumblrCheckSchedule {
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
                                 log.error("Прервано ожидание между постами для пользователя {}", subscription.getChatID());
-                                break;
+                                return;
                             } catch (Exception e) {
                                 log.error("Ошибка при отправке поста {} пользователю {}", post.getId(), subscription.getChatID(), e);
                             }
@@ -105,7 +105,7 @@ public class TumblrCheckSchedule {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     log.error("Прервано ожидание между пользователями");
-                    break;
+                    return;
                 } catch (Exception e) {
                     log.error("Ошибка при обработке подписки пользователя {}: {}",
                             subscription.getChatID(), e.getMessage(), e);

@@ -34,13 +34,15 @@ public class RedisCacheService {
         }
     }
 
-    public void markAsSent(String postID) {
+    public boolean markAsSentIfNotSent(String postID) {
         try {
             String key = PREFIX_SENT_POSTS + postID;
-            redisTemplate.opsForValue().set(key, "1", DEFAULT_TTL);
+            Boolean wasSet = redisTemplate.opsForValue().setIfAbsent(key, "1", DEFAULT_TTL);
             log.debug("Пост {} помечен как отправленный (TTL: {})", postID, DEFAULT_TTL);
+            return Boolean.TRUE.equals(wasSet);
         } catch (Exception e) {
             log.error("Не удалось пометить пост {} как отправленный.", postID, e);
+            return false;
         }
     }
 

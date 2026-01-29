@@ -147,6 +147,10 @@ public class TumblrService {
             dto.setTimestamp(post.getTimestamp());
         }
 
+        if (post.getNoteCount() != null) {
+            dto.setNoteCount(String.valueOf(post.getNoteCount()));
+        }
+
         dto.setType(post.getType());
         dto.setTags(post.getTags());
 
@@ -155,20 +159,12 @@ public class TumblrService {
 
             case Post.PostType.TEXT:
                 TextPost textPost = (TextPost) post;
-                if (textPost.getBody() != null) {
 
-                    dto.setBody(textPost.getBody());
-                    String imageUrl = contentExtractor.extractFirstImageUrl(textPost.getBody());
-                    String videoUrl = contentExtractor.extractFirstVideoUrl(textPost.getBody());
-
-                    if (imageUrl != null) {
-                        dto.setPhotoUrl(imageUrl);
-                    }
-
-                    if (videoUrl != null) {
-                        dto.setVideoUrl(videoUrl);
-                    }
-                }
+                Optional.ofNullable(textPost.getBody()).ifPresent(body -> {
+                        dto.setBody(body);
+                        contentExtractor.extractFirstImageUrl(body).ifPresent(dto::setPhotoUrl);
+                        contentExtractor.extractFirstVideoUrl(body).ifPresent(dto::setVideoUrl);
+                });
 
                 if (textPost.getTitle() != null) {
                     dto.setSummary(textPost.getTitle());

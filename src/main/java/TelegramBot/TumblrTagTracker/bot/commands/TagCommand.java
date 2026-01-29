@@ -9,11 +9,15 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Component
 public class TagCommand implements Command {
 
+    private static final int MAX_LENGTH = 150;
+    private static final int MAX_TAGS_PER_USER = 100;
+    private static final Pattern VALID_TAG_PATTERN = Pattern.compile("^[a-zA-Z0-9\\s-]+$");
     private final SubscriptionService subscriptionService;
 
     @Autowired
@@ -97,8 +101,20 @@ public class TagCommand implements Command {
         for (String tag : tagNames) {
             String trimmed = tag.trim().toLowerCase();
             if (!trimmed.isEmpty()) {
+                if (trimmed.length() > MAX_LENGTH) {
+                    response.setText("Тег слишком длинный, максимальный тег - 150 символов.");
+                    return;
+                } else if (!VALID_TAG_PATTERN.matcher(trimmed).matches()) {
+                    response.setText("Тег содержит недопустимые символы.");
+                    return;
+                }
                 newTags.add(trimmed);
             }
+        }
+
+        if (currentTags.size() + newTags.size() > MAX_TAGS_PER_USER) {
+            response.setText("Превышен лимит тегов (" + MAX_TAGS_PER_USER + ")");
+            return;
         }
 
         if (newTags.isEmpty()) {

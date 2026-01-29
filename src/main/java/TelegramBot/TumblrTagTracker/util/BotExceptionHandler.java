@@ -13,7 +13,7 @@ public class BotExceptionHandler {
             response.setText(e.getMessage());
             log.warn("Подписка не найдена для пользователя {}: {}", chatID, e.getMessage());
         } else if (e instanceof DatabaseException) {
-            response.setText(e.getMessage());
+            response.setText("Ошибка базы данных. Попробуйте позже.");
             log.warn("Ошибка со стороны БД для пользователя {}.", chatID, e);
         } else {
             response.setText("Непредвиденная ошибка. Попробуйте позже.");

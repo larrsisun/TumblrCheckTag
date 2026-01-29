@@ -2,6 +2,8 @@ package TelegramBot.TumblrTagTracker.services;
 
 import TelegramBot.TumblrTagTracker.dto.TumblrPostDTO;
 import TelegramBot.TumblrTagTracker.util.ContentExtractor;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +16,7 @@ import org.telegram.telegrambots.meta.api.methods.send.SendVideo;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 @Service
@@ -43,6 +46,8 @@ public class NotificationService {
         }
     }
 
+    @CircuitBreaker(name = "telegram", fallbackMethod = "fallbackSendMessage")
+    @Retry(name = "telegram")
     public boolean sendPostToUser(Long chatID, TumblrPostDTO post) {
         if (redisCacheService.wasSent(post.getId())) {
             return false;
@@ -62,7 +67,7 @@ public class NotificationService {
                 sendTextMessage(chatID, message);
             }
 
-            redisCacheService.markAsSent(post.getId());
+            redisCacheService.markAsSentIfNotSent(post.getId());
             log.info("Пост {} отправлен человеку {}", post.getId(), chatID);
             return true;
 
@@ -71,7 +76,7 @@ public class NotificationService {
             try {
                 // Fallback: отправляем простым текстом
                 sendTextMessage(chatID, post.getFormattedMessage());
-                redisCacheService.markAsSent(post.getId());
+                redisCacheService.markAsSentIfNotSent(post.getId());
                 log.info("Пост {} отправлен человеку {} простым текстом", post.getId(), chatID);
                 return  true;
             } catch (TelegramApiException ex) {
@@ -82,31 +87,17 @@ public class NotificationService {
     }
 
     private String getImageUrl(TumblrPostDTO post) {
-        // Для PHOTO постов используем photoUrl
-        if (post.getPhotoUrl() != null && !post.getPhotoUrl().isEmpty()) {
-            return post.getPhotoUrl();
-        }
-        
-        // Для TEXT постов пытаемся извлечь изображение из HTML
-        String imageFromBody = contentExtractor.extractFirstImageUrl(post.getPhotoUrl());
-        if (imageFromBody != null && !imageFromBody.isEmpty()) {
-            return imageFromBody;
-        }
-        
-        return null;
+        return Optional.ofNullable(post.getPhotoUrl())
+                .filter(url -> !url.isEmpty())
+                .or(() -> contentExtractor.extractFirstImageUrl(post.getBody()))
+                .orElse(null);
     }
 
     private String getVideoUrl(TumblrPostDTO post) {
-        if (post.getVideoUrl() != null && !post.getVideoUrl().isEmpty()) {
-            return post.getVideoUrl();
-        }
-
-        String videoFromBody = contentExtractor.extractFirstVideoUrl(post.getVideoUrl());
-        if (videoFromBody != null && !videoFromBody.isEmpty()) {
-            return videoFromBody;
-        }
-
-        return null;
+        return Optional.ofNullable(post.getVideoUrl())
+                .filter(url -> !url.isEmpty())
+                .or(() -> contentExtractor.extractFirstVideoUrl(post.getBody()))
+                .orElse(null);
     }
 
 
@@ -164,5 +155,10 @@ public class NotificationService {
         }
 
         bot.execute(video);
+    }
+
+    private boolean fallbackSendMessage(Long chatID, TumblrPostDTO post, Exception e) {
+        log.error("Failed to send post {} to user {} after retries", post.getId(), chatID, e);
+        return false;
     }
 }
