@@ -23,10 +23,10 @@ public class TumblrConfig {
 
         try {
             JumblrClient client;
-
             if (apiSecret != null && !apiSecret.trim().isEmpty()) {
                 client = new JumblrClient(apiKey, apiSecret);
             } else {
+                log.info("apiSecret оказался пустым/null");
                 client = new JumblrClient();
             }
             log.info("Клиент инициализирован");

@@ -1,17 +1,19 @@
 package TelegramBot.TumblrTagTracker.services;
 
-
-
 import TelegramBot.TumblrTagTracker.dto.TumblrPostDTO;
+import TelegramBot.TumblrTagTracker.util.ContentExtractor;
 import com.tumblr.jumblr.JumblrClient;
-import com.tumblr.jumblr.types.Post;
+import com.tumblr.jumblr.types.*;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.view.BeanNameViewResolver;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -22,40 +24,49 @@ public class TumblrService {
     private final JumblrClient tumblrClient;
     private final RedisCacheService cacheService;
     private final TumblrRateLimiterService rateLimiter;
+    private final PostTrackingService postTrackingService;
+    private final ContentExtractor contentExtractor;
 
     private final int FETCH_LIMIT = 20;
 
     @Autowired
-    public TumblrService(JumblrClient tumblrClient, RedisCacheService cacheService, TumblrRateLimiterService rateLimiter) {
+    public TumblrService(JumblrClient tumblrClient, RedisCacheService cacheService,
+                         TumblrRateLimiterService rateLimiter, PostTrackingService postTrackingService,
+                         ContentExtractor contentExtractor) {
         this.tumblrClient = tumblrClient;
         this.cacheService = cacheService;
         this.rateLimiter = rateLimiter;
+        this.postTrackingService = postTrackingService;
+        this.contentExtractor = contentExtractor;
     }
 
     public List<TumblrPostDTO> getNewPostsByTags(Set<String> tags) {
+
         if (tags == null || tags.isEmpty()) {
             log.debug("Теги не указаны, возвращаем пустой список");
             return Collections.emptyList();
         }
 
         log.info("Поиск постов по тегам: {}", tags);
-
-        // Используем Map для исключения дубликатов по ID
-        Map<String, TumblrPostDTO> allPostsMap = new HashMap<>();
+        Map<String, TumblrPostDTO> allPostsMap = new ConcurrentHashMap<>();
 
         for (String tag : tags) {
             try {
+                if (!rateLimiter.tryAcquire()) {
+                    log.warn("Достигнут лимит запросов, прерываем сбор постов");
+                    break;
+                }
                 List<TumblrPostDTO> postsForTag = getPostsByTag(tag);
                 for (TumblrPostDTO post : postsForTag) {
                     if (!cacheService.wasSent(post.getId())) {
                         allPostsMap.putIfAbsent(post.getId(), post);
                     }
                 }
+                log.debug("По тегу {} найдено {} новых постов", tag, postsForTag.size());
             } catch (Exception e) {
                 log.error("Ошибка при получении постов по тегу {}", tag, e);
             }
         }
-
         // Фильтруем только новые посты (которые еще не были отправлены)
         List<TumblrPostDTO> newPosts = allPostsMap.values().stream()
                 .filter(post -> post.getId() != null && !cacheService.wasSent(post.getId()))
@@ -65,29 +76,63 @@ public class TumblrService {
         return newPosts;
     }
 
+    public void updateTrackedPostsMetrics(Set<String> tags) {
+        log.info("Обновление метрик для отслеживаемых постов по тегам: {}", tags);
+
+        // Получаем посты для повторной проверки
+        var postsToRecheck = postTrackingService.findPostsForRecheck();
+
+        if (postsToRecheck.isEmpty()) {
+            log.debug("Нет постов для обновления метрик");
+            return;
+        }
+
+        log.info("Обновление метрик для {} постов", postsToRecheck.size());
+
+        // Для каждого тега получаем свежие данные
+        for (String tag : tags) {
+            try {
+                List<TumblrPostDTO> freshPosts = getPostsByTag(tag);
+
+                // Обновляем метрики для отслеживаемых постов
+                for (var trackedPost : postsToRecheck) {
+                    freshPosts.stream()
+                            .filter(p -> p.getId().equals(trackedPost.getPostId()))
+                            .findFirst()
+                            .ifPresent(freshPost -> {
+                                log.debug("Обновлены метрики для поста {}: {} заметок",
+                                        freshPost.getId(), freshPost.getNoteCount());
+                                postTrackingService.shouldSendPostNow(freshPost); // это обновит метрики
+                            });
+                }
+            } catch (Exception e) {
+                log.error("Ошибка при обновлении метрик для тега {}", tag, e);
+            }
+        }
+    }
 
     @CircuitBreaker(name = "tumblr", fallbackMethod = "fallbackGetPosts")
     private List<TumblrPostDTO> getPostsByTag(String tag) {
-        log.debug("Запрос к Tumblr API по тегу: {}, лимит={}", tag, FETCH_LIMIT);
-
         try {
             rateLimiter.waitForRateLimit();
 
             Map<String, Object> options = new HashMap<>();
             options.put("limit", FETCH_LIMIT);
-            // filter: "text" - HTML, "raw" - без форматирования, "none" - без тела поста
-            // Используем "text" для получения HTML-контента
+            options.put("filter", "text");
 
             List<Post> posts = tumblrClient.tagged(tag, options);
-            log.debug("Получено {} постов из Tumblr API по тегу {}", posts.size(), tag);
+            log.debug("Получено {} постов по тегу {}", posts.size(), tag);
 
             return posts.stream()
                     .map(this::convertToDTO)
                     .collect(Collectors.toList());
 
+        } catch (RequestNotPermitted r) {
+            log.warn("Рейт лимит превышен для тега {}", tag);
+            return Collections.emptyList();
         } catch (Exception e) {
             log.error("Ошибка при обращении к Tumblr API по тегу {}", tag, e);
-            return Collections.emptyList();
+            throw e; // Пробрасываем для CircuitBreaker
         }
     }
 
@@ -98,7 +143,6 @@ public class TumblrService {
         dto.setBlogName(post.getBlogName());
         dto.setPostURL(post.getPostUrl());
 
-        // Обработка timestamp
         if (post.getTimestamp() != null) {
             dto.setTimestamp(post.getTimestamp());
         }
@@ -108,24 +152,34 @@ public class TumblrService {
 
         // В зависимости от типа поста извлекаем разные данные
         switch (post.getType()) {
+
             case Post.PostType.TEXT:
-                com.tumblr.jumblr.types.TextPost textPost = (com.tumblr.jumblr.types.TextPost) post;
+                TextPost textPost = (TextPost) post;
                 if (textPost.getBody() != null) {
+
                     dto.setBody(textPost.getBody());
-                    // Пытаемся извлечь изображение из HTML body
-                    String imageUrl = extractImageFromHtml(textPost.getBody());
+                    String imageUrl = contentExtractor.extractFirstImageUrl(textPost.getBody());
+                    String videoUrl = contentExtractor.extractFirstVideoUrl(textPost.getBody());
+
                     if (imageUrl != null) {
                         dto.setPhotoUrl(imageUrl);
                     }
+
+                    if (videoUrl != null) {
+                        dto.setVideoUrl(videoUrl);
+                    }
                 }
+
                 if (textPost.getTitle() != null) {
                     dto.setSummary(textPost.getTitle());
                 }
                 break;
+
             case Post.PostType.PHOTO:
-                com.tumblr.jumblr.types.PhotoPost photoPost = (com.tumblr.jumblr.types.PhotoPost) post;
+                PhotoPost photoPost = (PhotoPost) post;
                 if (photoPost.getPhotos() != null && !photoPost.getPhotos().isEmpty()) {
-                    com.tumblr.jumblr.types.Photo photo = photoPost.getPhotos().get(0);
+
+                    Photo photo = photoPost.getPhotos().getFirst();
                     if (photo != null && photo.getOriginalSize() != null) {
                         dto.setPhotoUrl(photo.getOriginalSize().getUrl());
                     }
@@ -137,8 +191,28 @@ public class TumblrService {
                     dto.setSourceUrl(photoPost.getSourceUrl());
                 }
                 break;
+
+            case Post.PostType.VIDEO:
+                VideoPost videoPost = (VideoPost) post;
+                if (videoPost.getVideos() != null && !videoPost.getVideos().isEmpty()) {
+                    Video video = videoPost.getVideos().getFirst();
+                    if (video != null) {
+                        dto.setVideoUrl(video.getEmbedCode());
+                    }
+                }
+
+                if (videoPost.getCaption() != null) {
+                    dto.setSummary(videoPost.getCaption());
+                }
+
+                if (videoPost.getSourceUrl() != null) {
+                    dto.setSourceUrl(videoPost.getSourceUrl());
+                }
+
+                break;
+
             case Post.PostType.QUOTE:
-                com.tumblr.jumblr.types.QuotePost quotePost = (com.tumblr.jumblr.types.QuotePost) post;
+                QuotePost quotePost = (QuotePost) post;
                 if (quotePost.getText() != null) {
                     dto.setBody(quotePost.getText());
                 }
@@ -146,8 +220,9 @@ public class TumblrService {
                     dto.setSummary(quotePost.getSource());
                 }
                 break;
+
             case Post.PostType.LINK:
-                com.tumblr.jumblr.types.LinkPost linkPost = (com.tumblr.jumblr.types.LinkPost) post;
+                LinkPost linkPost = (LinkPost) post;
                 if (linkPost.getTitle() != null) {
                     dto.setSummary(linkPost.getTitle());
                 }
@@ -158,41 +233,12 @@ public class TumblrService {
                     dto.setSourceUrl(linkPost.getLinkUrl());
                 }
                 break;
+
             default:
                 dto.setSummary(post.getType() + " post");
                 break;
         }
-
         return dto;
-    }
-
-    /**
-     * Извлекает URL первого изображения из HTML
-     */
-    private String extractImageFromHtml(String html) {
-        if (html == null || html.isEmpty()) {
-            return null;
-        }
-        
-        // Ищем img теги с src атрибутом
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-            "<img[^>]+src=[\"']([^\"']+)[\"'][^>]*>",
-            java.util.regex.Pattern.CASE_INSENSITIVE
-        );
-        java.util.regex.Matcher matcher = pattern.matcher(html);
-        
-        if (matcher.find()) {
-            String imageUrl = matcher.group(1);
-            // Проверяем, что это валидный URL изображения
-            if (imageUrl != null && 
-                (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) &&
-                (imageUrl.contains("media.tumblr.com") || 
-                 imageUrl.matches(".*\\.(jpg|jpeg|png|gif|bmp|webp)(\\?.*)?$"))) {
-                return imageUrl;
-            }
-        }
-        
-        return null;
     }
 
     private List<TumblrPostDTO> fallbackGetPosts(String tag, Exception e) {

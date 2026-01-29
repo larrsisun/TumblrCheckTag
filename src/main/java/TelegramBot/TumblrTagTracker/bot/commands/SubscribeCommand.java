@@ -20,7 +20,7 @@ public class SubscribeCommand implements Command {
         }
 
         subscriptionService.subscribe(chatID);
-        response.setText("Поздравляю, теперь вы подписаны!");
+        response.setText("Поздравляю, теперь Вы подписаны!");
 
     }
 

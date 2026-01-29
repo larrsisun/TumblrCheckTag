@@ -21,7 +21,6 @@ public class TagCommand implements Command {
         this.subscriptionService = subscriptionService;
     }
 
-
     @Override
     public void execute(Long chatID, String[] args, SendMessage response) {
         if(!subscriptionService.isSubscribed(chatID)) {
@@ -50,7 +49,6 @@ public class TagCommand implements Command {
                 showCurrentTags(chatID, response);
                 break;
             default:
-                setTags(chatID, args, response);
                 break;
         }
     }
@@ -59,10 +57,10 @@ public class TagCommand implements Command {
         Set<String> tags = subscriptionService.getTags(chatID);
 
         StringBuilder message = new StringBuilder();
-        message.append("Ваши текущие теги: \n");
+        message.append("*Ваши текущие теги:* \n");
 
         if (tags.isEmpty()) {
-            message.append("У вас нет подписок на теги. Вы не будете получать посты.\n");
+            message.append("В данный момент вы не подписаны ни на один тег. :(\n");
         } else {
             for (String tag : tags) {
                 message.append("• ").append(tag).append("\n");
@@ -70,11 +68,10 @@ public class TagCommand implements Command {
         }
 
         message.append("\n*Примеры использования:* \n");
-        message.append("`/tag add \"lord of the mysteries\" ersatz` - добавить теги (используйте кавычки для многословных тегов)\n");
-        message.append("`/tag add lordofmysteries art` - добавить теги без пробелов\n");
-        message.append("`/tag remove fanart` - убрать тег\n");
-        message.append("`/tag clear` - очистить все теги\n");
-        message.append("`/tag \"lord of the mysteries\" art` - установить только эти теги\n");
+        message.append("`/tag add \"lord of the mysteries\" ersatz` - добавить теги;\n");
+        message.append("`/tag add ersatz` - добавить теги без пробелов;\n");
+        message.append("`/tag remove \"lord of the mysteries\"` - убрать один определённый тег;\n");
+        message.append("`/tag clear` - очистить все теги;\n");
         message.append("\n*Примечание:* Для тегов с пробелами используйте кавычки: `/tag add \"lord of the mysteries\"`. Для однословных тегов можно не использовать кавычки. Без тегов вы не будете получать посты.");
 
         response.setText(message.toString());
@@ -176,39 +173,6 @@ public class TagCommand implements Command {
             response.setParseMode("Markdown");
         } catch (Exception e) {
             BotExceptionHandler.handleException(e, chatID, response);
-        }
-    }
-
-    private void setTags(Long chatId, String[] args, SendMessage response) {
-        Set<String> requestedTags = Arrays.stream(args)
-                .map(String::trim)
-                .map(String::toLowerCase)
-                .filter(tag -> !tag.isEmpty())
-                .collect(Collectors.toSet());
-
-        try {
-            subscriptionService.updateTags(chatId, requestedTags);
-
-            Set<String> newTags = subscriptionService.getTags(chatId);
-            StringBuilder result = new StringBuilder();
-            result.append("*Теги обновлены!*\n\n");
-
-            if (newTags.isEmpty()) {
-                result.append("Теперь у вас нет тегов. Вы не будете получать посты.\n");
-            } else {
-                result.append("Теперь вы будете получать посты по тегам:\n");
-                for (String tag : newTags) {
-                    result.append("• ").append(tag).append("\n");
-                }
-            }
-
-            result.append("\nИспользуйте `/tag`, чтобы проверить или изменить.");
-
-            response.setText(result.toString());
-            response.setParseMode("Markdown");
-        } catch (Exception e) {
-            response.setText("Ошибка: " + e.getMessage() +
-                    "\nИспользуйте `/tag` для справки.");
         }
     }
 
