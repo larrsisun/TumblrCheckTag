@@ -89,30 +89,4 @@ public class TumblrPostDTO {
                 .replace(".", "\\.")
                 .replace("!", "\\!");
     }
-    
-    /**
-     * Извлекает URL первого изображения из HTML body (для TEXT постов с изображениями)
-     */
-    public String extractImageUrlFromBody() {
-        if (body == null || body.isEmpty()) {
-            return null;
-        }
-        
-        // Ищем img теги
-        Pattern pattern = Pattern.compile(
-            "<img[^>]+src=[\"']([^\"']+)[\"'][^>]*>",
-            Pattern.CASE_INSENSITIVE
-        );
-        Matcher matcher = pattern.matcher(body);
-        
-        if (matcher.find()) {
-            String imageUrl = matcher.group(1);
-            // Проверяем, что это действительно URL изображения
-            if (imageUrl != null && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://"))) {
-                return imageUrl;
-            }
-        }
-        return null;
-    }
-
 }

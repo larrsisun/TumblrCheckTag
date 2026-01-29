@@ -1,7 +1,7 @@
 package TelegramBot.TumblrTagTracker.repositories;
 
 
-import TelegramBot.TumblrTagTracker.model.Subscription;
+import TelegramBot.TumblrTagTracker.models.Subscription;
 import io.lettuce.core.dynamic.annotation.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;

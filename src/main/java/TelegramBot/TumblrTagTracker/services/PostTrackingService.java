@@ -1,7 +1,7 @@
 package TelegramBot.TumblrTagTracker.services;
 
 import TelegramBot.TumblrTagTracker.dto.TumblrPostDTO;
-import TelegramBot.TumblrTagTracker.model.TrackedPost;
+import TelegramBot.TumblrTagTracker.models.TrackedPost;
 import TelegramBot.TumblrTagTracker.repositories.TrackedPostRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,8 +10,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -23,7 +23,7 @@ public class PostTrackingService {
     private static final Logger log = LoggerFactory.getLogger(PostTrackingService.class);
 
     @Value("${tumblr.filter.minimum.notes:5}")
-    private long minimumNotes;
+    private int minimumNotes;
 
     @Value("${tumblr.filter.minimum.age.hours:0}")
     private int minimumAgeHours;
@@ -41,17 +41,13 @@ public class PostTrackingService {
         this.trackedPostRepository = trackedPostRepository;
     }
 
-    /**
-     * Проверяет, должен ли пост быть отправлен немедленно
-     * или нужно подождать, пока он наберет популярность
-     */
+    // Проверка, нужно ли отправить пост сейчас
     public boolean shouldSendPostNow(TumblrPostDTO post) {
 
-        // Проверяем, есть ли пост в БД
-        Optional<TrackedPost> trackedOpt = trackedPostRepository.findByPostId(post.getId());
+        Optional<TrackedPost> trackedPost = trackedPostRepository.findByPostId(post.getId());
 
-        if (trackedOpt.isPresent()) {
-            TrackedPost tracked = trackedOpt.get();
+        if (trackedPost.isPresent()) {
+            TrackedPost tracked = trackedPost.get();
             trackedPostRepository.save(tracked);
 
             // Проверяем условия отправки
@@ -59,14 +55,10 @@ public class PostTrackingService {
             boolean oldEnough = tracked.isOldEnough(minimumAgeHours);
 
             if (meetsThreshold && oldEnough) {
-                log.debug("Пост {} прошел фильтр: {} заметок (мин: {})",
-                        post.getId(), tracked.getNoteCount(), minimumNotes);
+                log.debug("Пост {} сразу прошел фильтры.", post.getId());
                 return true;
             } else {
-                log.debug("Пост {} не прошел фильтр: {} заметок (мин: {}), возраст: {} часов",
-                        post.getId(), tracked.getNoteCount(), minimumNotes,
-                        tracked.getPostCreatedAt() != null ?
-                                Duration.between(tracked.getPostCreatedAt(), LocalDateTime.now()).toHours() : "неизвестно");
+                log.debug("Пост {} не прошел фильтры.", post.getId());
                 return false;
             }
         } else {
@@ -75,16 +67,14 @@ public class PostTrackingService {
             trackedPostRepository.save(newTracked);
 
             // Проверяем, можем ли отправить сразу
-            boolean canSendNow = newTracked.meetsMinimumThreshold(minimumNotes) &&
-                    newTracked.isOldEnough(minimumAgeHours);
+            boolean canSendNow = newTracked.meetsMinimumThreshold(minimumNotes) && newTracked.isOldEnough(minimumAgeHours);
 
             if (canSendNow) {
-                log.debug("Новый пост {} сразу прошел фильтр: {} заметок",
-                        post.getId(), newTracked.getNoteCount());
+                log.debug("Новый пост {} сразу прошел фильтр.", post.getId());
                 return true;
             } else {
-                log.debug("Новый пост {} добавлен для отслеживания: {} заметок (мин: {})",
-                        post.getId(), newTracked.getNoteCount(), minimumNotes);
+                log.debug("Новый пост {} добавлен для отслеживания.",
+                        post.getId());
                 return false;
             }
         }
@@ -98,32 +88,22 @@ public class PostTrackingService {
         });
     }
 
-    /**
-     * Находит посты, которые теперь готовы к отправке
-     * (набрали достаточно лайков с момента последней проверки)
-     */
+    // Находит посты, которые теперь готовы к отправке
     public List<TrackedPost> findPostsReadyToSend() {
-        List<TrackedPost> candidates = trackedPostRepository
-                .findUnsentPostsWithMinimumNotes(minimumNotes);
+        List<TrackedPost> candidates = trackedPostRepository.findUnsentPostsWithMinimumNotes(minimumNotes);
 
         // Дополнительно фильтруем по возрасту
-        return candidates.stream()
-                .filter(post -> post.isOldEnough(minimumAgeHours))
-                .collect(Collectors.toList());
+        return candidates.stream().filter(post -> post.isOldEnough(minimumAgeHours)).collect(Collectors.toList());
     }
 
-    /**
-     * Находит посты для повторной проверки метрик
-     */
+    // Находит посты для повторной проверки метрик
     public List<TrackedPost> findPostsForRecheck() {
         LocalDateTime checkBefore = LocalDateTime.now().minusHours(recheckIntervalHours);
         return trackedPostRepository.findPostsForRecheck(checkBefore);
     }
 
-    /**
-     * Очищает старые отправленные посты
-     */
-    public void cleanupOldPosts() {
+    // Очищает старые отправленные посты
+    public void cleanUpOldPosts() {
         LocalDateTime olderThan = LocalDateTime.now().minusDays(cleanupAfterDays);
         List<TrackedPost> oldPosts = trackedPostRepository.findOldSentPosts(olderThan);
 
@@ -133,23 +113,19 @@ public class PostTrackingService {
         }
     }
 
-
+    // Создаём пост для отслеживания
     private TrackedPost createTrackedPost(TumblrPostDTO post) {
         TrackedPost tracked = new TrackedPost(post.getId());
         tracked.setBlogName(post.getBlogName());
         tracked.setPostUrl(post.getPostURL());
 
         if (post.getTimestamp() != null) {
-            tracked.setPostCreatedAt(
-                    LocalDateTime.ofEpochSecond(post.getTimestamp(), 0,
-                            java.time.ZoneOffset.UTC)
-            );
+            tracked.setPostCreatedAt(LocalDateTime.ofEpochSecond(post.getTimestamp(), 0, ZoneOffset.UTC));
         }
 
         if (post.getTags() != null) {
             tracked.setTags(String.join(",", post.getTags()));
         }
-
         return tracked;
     }
 }

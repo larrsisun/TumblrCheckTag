@@ -1,4 +1,4 @@
-package TelegramBot.TumblrTagTracker.model;
+package TelegramBot.TumblrTagTracker.models;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -26,7 +26,7 @@ public class TrackedPost {
     private String postUrl;
 
     @Column(name = "note_count")
-    private Long noteCount;
+    private Integer noteCount;
 
     @Column(name = "first_seen_at")
     private LocalDateTime firstSeenAt;

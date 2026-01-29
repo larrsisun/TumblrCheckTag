@@ -1,4 +1,4 @@
-package TelegramBot.TumblrTagTracker.model;
+package TelegramBot.TumblrTagTracker.models;
 
 import jakarta.persistence.*;
 import lombok.Getter;

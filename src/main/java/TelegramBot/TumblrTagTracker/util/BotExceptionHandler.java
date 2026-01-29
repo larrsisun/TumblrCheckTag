@@ -16,7 +16,7 @@ public class BotExceptionHandler {
             response.setText(e.getMessage());
             log.warn("Ошибка со стороны БД для пользователя {}.", chatID, e);
         } else {
-            response.setText("Непредвиденная ошибка. Попробуйте позже или обратитесь к @seosane.");
+            response.setText("Непредвиденная ошибка. Попробуйте позже.");
             log.error("Непредвиденная ошибка для пользователя {}", chatID);
         }
     }

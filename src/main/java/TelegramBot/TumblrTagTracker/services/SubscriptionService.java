@@ -1,7 +1,7 @@
 package TelegramBot.TumblrTagTracker.services;
 
 
-import TelegramBot.TumblrTagTracker.model.Subscription;
+import TelegramBot.TumblrTagTracker.models.Subscription;
 import TelegramBot.TumblrTagTracker.repositories.SubscriptionRepository;
 import TelegramBot.TumblrTagTracker.util.DatabaseException;
 import TelegramBot.TumblrTagTracker.util.SubscriptionNotFoundException;

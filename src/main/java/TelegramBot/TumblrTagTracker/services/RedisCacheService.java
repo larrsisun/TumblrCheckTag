@@ -1,5 +1,6 @@
 package TelegramBot.TumblrTagTracker.services;
 
+import TelegramBot.TumblrTagTracker.util.RedisCacheException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +28,7 @@ public class RedisCacheService {
             String key = PREFIX_SENT_POSTS + postID;
             Boolean exists = redisTemplate.hasKey(key);
             return Boolean.TRUE.equals(exists);
-        } catch (Exception e) {
+        } catch (RedisCacheException e) {
             log.error("Не удалось проверить, отправлен ли пост {}.", postID, e);
             return false;
         }

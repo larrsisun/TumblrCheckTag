@@ -1,6 +1,7 @@
 package TelegramBot.TumblrTagTracker.services;
 
 import TelegramBot.TumblrTagTracker.dto.TumblrPostDTO;
+import TelegramBot.TumblrTagTracker.util.ContentExtractor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
+import org.telegram.telegrambots.meta.api.methods.send.SendVideo;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
@@ -21,15 +23,17 @@ public class NotificationService {
 
     private final TelegramLongPollingBot bot;
     private final RedisCacheService redisCacheService;
+    private final ContentExtractor contentExtractor;
 
     @Autowired
-    public NotificationService(TelegramLongPollingBot bot, RedisCacheService redisCacheService) {
+    public NotificationService(TelegramLongPollingBot bot, RedisCacheService redisCacheService, ContentExtractor contentExtractor) {
         this.bot = bot;
         this.redisCacheService = redisCacheService;
+        this.contentExtractor = contentExtractor;
     }
 
     @Async("notificationExecutor")
-    public CompletableFuture<Boolean> sendPostToUserAsync(Long chatID, TumblrPostDTO post) {
+    public CompletableFuture<Boolean> sendPostToUserAsync (Long chatID, TumblrPostDTO post) {
         try {
             boolean sent = sendPostToUser(chatID, post);
             return CompletableFuture.completedFuture(sent);
@@ -47,10 +51,13 @@ public class NotificationService {
         try {
             String message = post.getFormattedMessage();
             String imageUrl = getImageUrl(post);
+            String videoUrl = getVideoUrl(post);
             
             // Если есть изображение, отправляем фото с подписью
             if (imageUrl != null && !imageUrl.isEmpty()) {
                 sendPhotoWithCaption(chatID, imageUrl, message);
+            } else if (videoUrl != null && !videoUrl.isEmpty()) {
+                sendVideoWithCaption(chatID, videoUrl, message);
             } else {
                 sendTextMessage(chatID, message);
             }
@@ -73,10 +80,7 @@ public class NotificationService {
             }
         }
     }
-    
-    /**
-     * Определяет URL изображения для поста
-     */
+
     private String getImageUrl(TumblrPostDTO post) {
         // Для PHOTO постов используем photoUrl
         if (post.getPhotoUrl() != null && !post.getPhotoUrl().isEmpty()) {
@@ -84,25 +88,34 @@ public class NotificationService {
         }
         
         // Для TEXT постов пытаемся извлечь изображение из HTML
-        String imageFromBody = post.extractImageUrlFromBody();
+        String imageFromBody = contentExtractor.extractFirstImageUrl(post.getPhotoUrl());
         if (imageFromBody != null && !imageFromBody.isEmpty()) {
             return imageFromBody;
         }
         
-        // Проверяем sourceUrl, если это изображение
-        if (post.getSourceUrl() != null && isImageUrl(post.getSourceUrl())) {
-            return post.getSourceUrl();
-        }
-        
         return null;
     }
+
+    private String getVideoUrl(TumblrPostDTO post) {
+        if (post.getVideoUrl() != null && !post.getVideoUrl().isEmpty()) {
+            return post.getVideoUrl();
+        }
+
+        String videoFromBody = contentExtractor.extractFirstVideoUrl(post.getVideoUrl());
+        if (videoFromBody != null && !videoFromBody.isEmpty()) {
+            return videoFromBody;
+        }
+
+        return null;
+    }
+
 
     private void sendTextMessage(Long chatID, String text) throws TelegramApiException {
         SendMessage message = new SendMessage();
 
         message.setChatId(chatID.toString());
         message.setText(text);
-        message.setParseMode("Markdown");
+        message.setParseMode("MarkdownV2");
         message.disableWebPagePreview();
 
         bot.execute(message);
@@ -125,26 +138,31 @@ public class NotificationService {
         
         if (caption != null && !caption.trim().isEmpty()) {
             photo.setCaption(caption);
-            photo.setParseMode("Markdown");
+            photo.setParseMode("MarkdownV2");
         }
 
         bot.execute(photo);
     }
 
-    private boolean isImageUrl(String url) {
-        if (url == null || url.isEmpty()) {
-            return false;
+    private void sendVideoWithCaption(Long chatID, String videoURL, String caption) throws TelegramApiException {
+        SendVideo video = new SendVideo();
+
+        video.setChatId(chatID.toString());
+
+        InputFile inputFile = new InputFile();
+        inputFile.setMedia(videoURL);
+
+        video.setVideo(inputFile);
+
+        if (caption != null && caption.length() > 1024) {
+            caption = caption.substring(0, 1021) + "...";
         }
 
-        String lowerUrl = url.toLowerCase();
-        // Проверяем расширение файла
-        if (lowerUrl.matches(".*\\.(jpg|jpeg|png|gif|bmp|webp)(\\?.*)?$")) {
-            return true;
+        if (caption != null && !caption.trim().isEmpty()) {
+            video.setCaption(caption);
+            video.setParseMode("MarkdownV2");
         }
-        // Проверяем домены, которые обычно содержат изображения
-        return lowerUrl.contains("media.tumblr.com") ||
-               lowerUrl.contains("tumblr.com/photo") ||
-               lowerUrl.contains("imgur.com") ||
-               lowerUrl.contains("i.imgur.com");
+
+        bot.execute(video);
     }
 }
