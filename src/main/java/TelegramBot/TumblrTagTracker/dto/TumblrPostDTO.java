@@ -1,5 +1,6 @@
 package TelegramBot.TumblrTagTracker.dto;
 
+import TelegramBot.TumblrTagTracker.util.HtmlDecoder;
 import com.tumblr.jumblr.types.Post;
 import lombok.Getter;
 import lombok.Setter;
@@ -24,6 +25,8 @@ public class TumblrPostDTO {
     private String sourceUrl; // для ссылок
     private String noteCount;
 
+    private static HtmlDecoder htmlDecoder = new HtmlDecoder();
+
     public String getFormattedMessage() {
         StringBuilder stringBuilder = new StringBuilder();
 
@@ -38,27 +41,17 @@ public class TumblrPostDTO {
             stringBuilder.append("\n\n");
         }
 
-        // Теги (опционально, можно убрать если не нужны)
-        if (tags != null && !tags.isEmpty() && tags.size() <= 5) {
-            stringBuilder.append("🏷 ");
-            stringBuilder.append(String.join(", ", tags));
-            stringBuilder.append("\n");
-        }
-
-        // Ссылка на пост
         if (postURL != null) {
-            stringBuilder.append("\n[📎 Открыть пост](").append(postURL).append(")");
+            stringBuilder.append("\n ;; [открыть пост](").append(postURL).append(")");
         }
 
         return stringBuilder.toString();
     }
 
-    /**
-     * Извлекает чистый текст из HTML, убирая все теги
-     */
     public String getCleanText() {
+
         String text = null;
-        
+
         if (summary != null && !summary.trim().isEmpty()) {
             text = summary;
         } else if (body != null && !body.trim().isEmpty()) {
@@ -68,37 +61,8 @@ public class TumblrPostDTO {
         if (text == null) {
             return null;
         }
-        
-        // Убираем HTML теги
-        text = stripHtmlTags(text);
-        
-        // Убираем лишние пробелы и переносы строк
-        text = text.replaceAll("\\s+", " ").trim();
-        
-        return text;
-    }
 
-    /**
-     * Удаляет HTML теги из текста
-     */
-    private String stripHtmlTags(String html) {
-        if (html == null) {
-            return null;
-        }
-        
-        // Удаляем все HTML теги
-        String text = html.replaceAll("<[^>]+>", "");
-        
-        // Декодируем HTML entities
-        text = text.replace("&nbsp;", " ")
-                   .replace("&amp;", "&")
-                   .replace("&lt;", "<")
-                   .replace("&gt;", ">")
-                   .replace("&quot;", "\"")
-                   .replace("&#39;", "'")
-                   .replace("&apos;", "'");
-        
-        return text;
+        return htmlDecoder.cleanHtml(text);
     }
 
     private String escapeMarkdown(String text) {
@@ -135,9 +99,9 @@ public class TumblrPostDTO {
         }
         
         // Ищем img теги
-        Pattern pattern = java.util.regex.Pattern.compile(
+        Pattern pattern = Pattern.compile(
             "<img[^>]+src=[\"']([^\"']+)[\"'][^>]*>",
-            java.util.regex.Pattern.CASE_INSENSITIVE
+            Pattern.CASE_INSENSITIVE
         );
         Matcher matcher = pattern.matcher(body);
         
@@ -148,7 +112,6 @@ public class TumblrPostDTO {
                 return imageUrl;
             }
         }
-        
         return null;
     }
 

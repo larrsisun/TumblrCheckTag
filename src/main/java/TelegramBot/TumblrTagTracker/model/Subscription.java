@@ -8,32 +8,26 @@ import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 
+@Setter
+@Getter
 @Entity
 @Table(name = "Subscription")
 public class Subscription {
 
-    @Setter
-    @Getter
     @Id
     @Column(name = "id")
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Setter
-    @Getter
     @Column(name = "chat_ID", nullable = false, unique = true)
     private Long chatID;
 
-    @Setter
-    @Getter
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive;
 
-    @Setter
-    @Getter
     @CollectionTable(
             name = "subscription_tags",
             joinColumns = @JoinColumn(name = "subscription_id")
@@ -51,7 +45,6 @@ public class Subscription {
         this.createdAt = LocalDateTime.now();
         this.isActive = true;
     }
-
 
     public Boolean getActive() {
         return isActive;

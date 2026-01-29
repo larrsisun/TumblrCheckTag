@@ -28,11 +28,11 @@ public class TumblrCheckSchedule {
 
     private static final Logger log = LoggerFactory.getLogger(TumblrCheckSchedule.class);
 
-    @Value("${notification.delay.between.posts.ms:50000}") // 0.5 секунды между постами
+    @Value("${notification.delay.between.posts.ms}") // 1 минута
     private long delayBetweenPosts;
-    @Value("${tumblr.check.interval.ms:3000}") // 5 минут по умолчанию
+    @Value("${tumblr.check.interval.ms}") // 10 минут (application properties)
     private long checkIntervalMs;
-    @Value("${notification.delay.between.users.ms:1000}") // 1 секунда между пользователями
+    @Value("${notification.delay.between.users.ms}") // 1 секунда между пользователями
     private long delayBetweenUsers;
 
     private final SubscriptionService subscriptionService;
@@ -48,7 +48,7 @@ public class TumblrCheckSchedule {
         this.postTrackingService = postTrackingService;
     }
 
-    @Scheduled(fixedDelay = 300000) // 5 минут
+    @Scheduled(fixedDelay = 600000) // 10 минут
     public void checkForNewPosts() {
         try {
             List<Subscription> activeSubscriptions = subscriptionService.getAllActiveSubscriptions();

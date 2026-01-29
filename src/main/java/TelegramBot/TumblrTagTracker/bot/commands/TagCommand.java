@@ -49,7 +49,6 @@ public class TagCommand implements Command {
                 showCurrentTags(chatID, response);
                 break;
             default:
-                setTags(chatID, args, response);
                 break;
         }
     }
@@ -174,39 +173,6 @@ public class TagCommand implements Command {
             response.setParseMode("Markdown");
         } catch (Exception e) {
             BotExceptionHandler.handleException(e, chatID, response);
-        }
-    }
-
-    private void setTags(Long chatId, String[] args, SendMessage response) {
-        Set<String> requestedTags = Arrays.stream(args)
-                .map(String::trim)
-                .map(String::toLowerCase)
-                .filter(tag -> !tag.isEmpty())
-                .collect(Collectors.toSet());
-
-        try {
-            subscriptionService.updateTags(chatId, requestedTags);
-
-            Set<String> newTags = subscriptionService.getTags(chatId);
-            StringBuilder result = new StringBuilder();
-            result.append("*Теги обновлены!*\n\n");
-
-            if (newTags.isEmpty()) {
-                result.append("Теперь у вас нет тегов. Вы не будете получать посты.\n");
-            } else {
-                result.append("Теперь вы будете получать посты по тегам:\n");
-                for (String tag : newTags) {
-                    result.append("• ").append(tag).append("\n");
-                }
-            }
-
-            result.append("\nИспользуйте `/tag`, чтобы проверить или изменить.");
-
-            response.setText(result.toString());
-            response.setParseMode("Markdown");
-        } catch (Exception e) {
-            response.setText("Ошибка: " + e.getMessage() +
-                    "\nИспользуйте `/tag` для справки.");
         }
     }
 

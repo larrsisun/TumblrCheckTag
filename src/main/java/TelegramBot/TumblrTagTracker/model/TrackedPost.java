@@ -38,12 +38,12 @@ public class TrackedPost {
     private LocalDateTime postCreatedAt;
 
     @Column(name = "was_sent")
-    private Boolean wasSent = false; // был ли отправлен пост хотя бы одному пользователю
+    private Boolean wasSent;
 
     @Column(name = "sent_to_users_count")
-    private Integer sentToUsersCount = 0;
+    private Integer sentToUsersCount;
 
-    @Column(name = "tags", length = 1000)
+    @Column(name = "tags")
     private String tags;
 
     public TrackedPost() {
@@ -58,7 +58,7 @@ public class TrackedPost {
         this.postId = postId;
     }
 
-    public boolean meetsMinimumThreshold(long minimumNotes) {
+    public boolean meetsMinimumThreshold(int minimumNotes) {
         return this.noteCount != null && this.noteCount >= minimumNotes;
     }
 
@@ -67,11 +67,6 @@ public class TrackedPost {
             return true; // если не знаем возраст, считаем что достаточно старый
         }
         return LocalDateTime.now().minusHours(minAgeInHours).isAfter(this.postCreatedAt);
-    }
-
-    public void updateMetrics(Long noteCount, Long likeCount, Long reblogCount) {
-        this.noteCount = noteCount;
-        this.lastCheckedAt = LocalDateTime.now();
     }
 
     public void markAsSent() {

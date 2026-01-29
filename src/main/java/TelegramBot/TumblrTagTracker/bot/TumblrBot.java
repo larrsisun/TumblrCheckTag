@@ -107,7 +107,7 @@ public class TumblrBot extends TelegramLongPollingBot {
             if (c == '"') {
                 inQuotes = !inQuotes;
             } else if (c == ' ' && !inQuotes) {
-                if (current.length() > 0) {
+                if (!current.isEmpty()) {
                     args.add(current.toString());
                     current.setLength(0);
                 }
@@ -116,7 +116,7 @@ public class TumblrBot extends TelegramLongPollingBot {
             }
         }
 
-        if (current.length() > 0) {
+        if (!current.isEmpty()) {
             args.add(current.toString());
         }
 
