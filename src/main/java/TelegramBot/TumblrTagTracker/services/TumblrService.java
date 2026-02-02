@@ -195,6 +195,17 @@ public class TumblrService {
                 }
                 break;
 
+            case Post.PostType.ANSWER:
+                AnswerPost answerPost = (AnswerPost) post;
+
+                if (answerPost.getQuestion() != null) {
+                    dto.setQuestion(answerPost.getQuestion());
+                }
+
+                if (answerPost.getAnswer() != null) {
+                    dto.setAnswer(answerPost.getAnswer());
+                }
+
             default:
                 dto.setSummary(post.getType() + " post");
                 break;

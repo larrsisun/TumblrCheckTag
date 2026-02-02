@@ -24,6 +24,8 @@ public class TumblrPostDTO {
     private String videoUrl;
     private String sourceUrl; // для ссылок
     private String noteCount;
+    private String question;
+    private String answer;
 
     private static HtmlDecoder htmlDecoder = new HtmlDecoder();
 
