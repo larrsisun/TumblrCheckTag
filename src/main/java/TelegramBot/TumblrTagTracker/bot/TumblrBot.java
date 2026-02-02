@@ -50,11 +50,17 @@ public class TumblrBot extends TelegramLongPollingBot {
         Message message = update.getMessage();
         Long chatId = message.getChatId();
         String text = message.getText().trim();
-        SendMessage messageForUser = new SendMessage();
 
         // Проверяем, является ли сообщение командой
         if (!text.startsWith("/")) {
+            SendMessage messageForUser = new SendMessage();
+            messageForUser.setChatId(String.valueOf(chatId));
             messageForUser.setText("Извините, я умею понимать только команды и не могу с вами пообщаться!");
+            try {
+                execute(messageForUser);
+            } catch (TelegramApiException e) {
+                log.error("Не удалось отправить сообщение пользователю {}", chatId, e);
+            }
             log.info("Пользователь {} отправил сообщение: {}", message.getChatId(), message.getText());
             return;
         }

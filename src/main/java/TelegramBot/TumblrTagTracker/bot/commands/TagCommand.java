@@ -3,6 +3,7 @@ package TelegramBot.TumblrTagTracker.bot.commands;
 import TelegramBot.TumblrTagTracker.services.SubscriptionService;
 import TelegramBot.TumblrTagTracker.util.BotExceptionHandler;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 
@@ -53,6 +54,8 @@ public class TagCommand implements Command {
                 showCurrentTags(chatID, response);
                 break;
             default:
+                response.setText("Увы, я не знаю такую команду. :( Воспользуйтесь /help для списка команд.");
+                response.setParseMode("Markdown");
                 break;
         }
     }

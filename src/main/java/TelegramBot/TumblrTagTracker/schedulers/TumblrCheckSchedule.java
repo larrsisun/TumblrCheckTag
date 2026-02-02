@@ -21,6 +21,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 @Component
 @EnableScheduling
@@ -59,112 +60,152 @@ public class TumblrCheckSchedule {
             }
 
             log.info("Найдено {} активных подписчиков", activeSubscriptions.size());
-
-            // Проходим по каждому подписчику
-            for (Subscription subscription : activeSubscriptions) {
-                try {
-                    Set<String> userTags = subscription.getTags();
-                    if (userTags == null || userTags.isEmpty()) {
-                        log.debug("Пользователь {} не имеет тегов, пропускаем", subscription.getChatID());
-                        continue;
-                    }
-
-                    log.debug("Проверка постов для пользователя {} по тегам: {}", subscription.getChatID(), userTags);
-
-                    // Получаем новые посты по тегам пользователя
-                    List<TumblrPostDTO> newPosts = tumblrService.getNewPostsByTags(userTags);
-
-                    if (newPosts.isEmpty()) {
-                        log.debug("Новых постов для пользователя {} не найдено", subscription.getChatID());
-                    } else {
-                        log.info("Найдено {} новых постов для пользователя {}", newPosts.size(), subscription.getChatID());
-
-                        // Отправляем посты пользователю
-                        for (TumblrPostDTO post : newPosts) {
-                            try {
-                                notificationService.sendPostToUser(subscription.getChatID(), post);
-                                // Задержка между постами
-                                if (delayBetweenPosts > 0) {
-                                    Thread.sleep(delayBetweenPosts);
-                                }
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                log.error("Прервано ожидание между постами для пользователя {}", subscription.getChatID());
-                                return;
-                            } catch (Exception e) {
-                                log.error("Ошибка при отправке поста {} пользователю {}", post.getId(), subscription.getChatID(), e);
-                            }
-                        }
-                    }
-
-                    // Задержка между пользователями, чтобы не перегрузить Telegram API
-                    if (delayBetweenUsers > 0) {
-                        Thread.sleep(delayBetweenUsers);
-                    }
-
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.error("Прервано ожидание между пользователями");
-                    return;
-                } catch (Exception e) {
-                    log.error("Ошибка при обработке подписки пользователя {}: {}",
-                            subscription.getChatID(), e.getMessage(), e);
-                }
-            }
+            activeSubscriptions.forEach(this::processSubscriptionAsync
+            );
 
         } catch (Exception e) {
             log.error("Ошибка при проверке постов.", e);
         }
     }
 
-
-    @Scheduled(fixedDelay = 1800000) // 30 минут
-    public void checkDelayedPosts() {
+    @Async("tumblrApiExecutor")
+    protected void processSubscriptionAsync(Subscription subscription) {
         try {
-            log.info("Проверка отложенных постов");
-            List<TrackedPost> readyPosts = postTrackingService.findPostsReadyToSend();
-
-            if (readyPosts.isEmpty()) {
-                log.info("Нет отложенных постов, готовых к отправке");
+            Set<String> userTags = subscription.getTags();
+            if (userTags == null || userTags.isEmpty()) {
+                log.debug("Пользователь {} не имеет тегов, пропускаем", subscription.getChatID());
                 return;
             }
 
-            log.info("Найдено {} отложенных постов, готовых к отправке", readyPosts.size());
+            log.debug("Проверка постов для пользователя {} по тегам: {}", subscription.getChatID(), userTags);
 
-            // Получаем всех активных подписчиков
-            List<Subscription> activeSubscriptions = subscriptionService.getAllActiveSubscriptions();
+            // Получаем новые посты по тегам пользователя
+            List<TumblrPostDTO> newPosts = tumblrService.getNewPostsByTags(userTags);
 
-            // Для каждого готового поста находим подходящих пользователей
-            for (TrackedPost trackedPost : readyPosts) {
-                Set<String> postTags = trackedPost.getTags() != null ? Set.of(trackedPost.getTags().split(",")) : Set.of();
-
-                // Находим пользователей, у которых есть пересечение тегов
-                List<Subscription> matchingUsers = activeSubscriptions.stream()
-                        .filter(sub -> sub.getTags() != null && !sub.getTags().isEmpty())
-                        .filter(sub -> hasCommonTags(sub.getTags(), postTags))
-                        .toList();
-
-                if (!matchingUsers.isEmpty()) {
-                    log.info("Отправка отложенного поста {} пользователям: {}", trackedPost.getPostId(), matchingUsers.size());
-                    TumblrPostDTO postDTO = createDTOFromTrackedPost(trackedPost);
-
-                    // Асинхронно отправляем посты
-                    for (Subscription user : matchingUsers) {
-                        notificationService.sendPostToUserAsync(user.getChatID(), postDTO);
-
-                        // Небольшая задержка между пользователями
-                        if (delayBetweenUsers > 0) {
-                            Thread.sleep(delayBetweenUsers);
-                        }
-                    }
-                    // Помечаем пост как отправленный
-                    postTrackingService.markPostAsSent(trackedPost.getPostId());
-                }
+            if (newPosts.isEmpty()) {
+                log.debug("Новых постов для пользователя {} не найдено", subscription.getChatID());
+                return;
             }
 
+            log.info("Найдено {} новых постов для пользователя {}", newPosts.size(), subscription.getChatID());
+            sendPostsWithDelay(subscription.getChatID(), newPosts);
+
         } catch (Exception e) {
-            log.error("Ошибка при проверке отложенных постов", e);
+            log.error("Ошибка при попытке обработать подписку для пользователя {}", subscription.getChatID());
         }
+    }
+
+    private void sendPostsWithDelay(Long chatId, List<TumblrPostDTO> posts) {
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+
+        for (TumblrPostDTO post : posts) {
+            chain = chain.thenCompose(v -> notificationService.sendPostToUserAsync(chatId, post).thenApply(sent -> {
+                                if (sent) {
+                                    log.debug("Post {} sent to user {}", post.getId(), chatId);
+                                }
+                                return null;
+                            })
+            ).thenCompose(v -> delay(delayBetweenPosts));
+        }
+
+        // Handle any errors in the chain
+        chain.exceptionally(ex -> {
+            log.error("Error in notification chain for user {}", chatId, ex);
+            return null;
+        });
+    }
+
+    @Async("notificationExecutor")
+    protected void processDelayedPostAsync(TrackedPost trackedPost,
+                                           List<Subscription> activeSubscriptions) {
+        try {
+            Set<String> postTags = trackedPost.getTags() != null
+                    ? Set.of(trackedPost.getTags().split(","))
+                    : Set.of();
+
+            // Find users with matching tags
+            List<Subscription> matchingUsers = activeSubscriptions.stream()
+                    .filter(sub -> sub.getTags() != null && !sub.getTags().isEmpty())
+                    .filter(sub -> hasCommonTags(sub.getTags(), postTags))
+                    .toList();
+
+            if (matchingUsers.isEmpty()) {
+                log.debug("No matching users for delayed post {}", trackedPost.getPostId());
+                return;
+            }
+
+            log.info("Sending delayed post {} to {} users",
+                    trackedPost.getPostId(), matchingUsers.size());
+
+            TumblrPostDTO postDTO = createDTOFromTrackedPost(trackedPost);
+
+            // Send to all matching users with delays
+            CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+
+            for (Subscription user : matchingUsers) {
+                chain = chain.thenCompose(v ->
+                        notificationService.sendPostToUserAsync(user.getChatID(), postDTO)
+                ).thenCompose(v -> delay(delayBetweenUsers));
+            }
+
+            // Mark as sent after all notifications complete
+            chain.thenRun(() -> {
+                postTrackingService.markPostAsSent(trackedPost.getPostId());
+                log.info("Delayed post {} marked as sent", trackedPost.getPostId());
+            }).exceptionally(ex -> {
+                log.error("Error sending delayed post {}", trackedPost.getPostId(), ex);
+                return null;
+            });
+
+        } catch (Exception e) {
+            log.error("Error processing delayed post {}", trackedPost.getPostId(), e);
+        }
+    }
+
+    /**
+     * Cleans up old tracked posts.
+     * Runs daily at 3 AM.
+     */
+    @Scheduled(cron = "${tumblr.cleanup.cron:0 0 3 * * ?}")
+    public void cleanupOldPosts() {
+        try {
+            log.info("Starting cleanup of old tracked posts");
+            postTrackingService.cleanUpOldPosts();
+            log.info("Cleanup completed");
+        } catch (Exception e) {
+            log.error("Error during cleanup", e);
+        }
+    }
+
+    @Scheduled(fixedDelay = 1800000) // 30 minutes
+    public void checkDelayedPosts() {
+        try {
+            log.info("Checking delayed posts");
+            List<TrackedPost> readyPosts = postTrackingService.findPostsReadyToSend();
+
+            if (readyPosts.isEmpty()) {
+                log.info("No delayed posts ready to send");
+                return;
+            }
+
+            log.info("Found {} delayed posts ready to send", readyPosts.size());
+
+            // Get all active subscriptions once
+            List<Subscription> activeSubscriptions = subscriptionService.getAllActiveSubscriptions();
+
+            // Process each ready post
+            readyPosts.forEach(trackedPost ->
+                    processDelayedPostAsync(trackedPost, activeSubscriptions)
+            );
+
+        } catch (Exception e) {
+            log.error("Error checking delayed posts", e);
+        }
+    }
+
+    private CompletableFuture<Void> delay(long millis) {
+        return CompletableFuture.runAsync(() -> {},
+                CompletableFuture.delayedExecutor(millis, TimeUnit.MILLISECONDS));
     }
 
     private boolean hasCommonTags(Set<String> userTags, Set<String> postTags) {

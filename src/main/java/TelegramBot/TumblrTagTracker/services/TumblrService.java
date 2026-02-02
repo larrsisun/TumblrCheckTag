@@ -76,41 +76,6 @@ public class TumblrService {
         return newPosts;
     }
 
-    public void updateTrackedPostsMetrics(Set<String> tags) {
-        log.info("Обновление метрик для отслеживаемых постов по тегам: {}", tags);
-
-        // Получаем посты для повторной проверки
-        var postsToRecheck = postTrackingService.findPostsForRecheck();
-
-        if (postsToRecheck.isEmpty()) {
-            log.debug("Нет постов для обновления метрик");
-            return;
-        }
-
-        log.info("Обновление метрик для {} постов", postsToRecheck.size());
-
-        // Для каждого тега получаем свежие данные
-        for (String tag : tags) {
-            try {
-                List<TumblrPostDTO> freshPosts = getPostsByTag(tag);
-
-                // Обновляем метрики для отслеживаемых постов
-                for (var trackedPost : postsToRecheck) {
-                    freshPosts.stream()
-                            .filter(p -> p.getId().equals(trackedPost.getPostId()))
-                            .findFirst()
-                            .ifPresent(freshPost -> {
-                                log.debug("Обновлены метрики для поста {}: {} заметок",
-                                        freshPost.getId(), freshPost.getNoteCount());
-                                postTrackingService.shouldSendPostNow(freshPost); // это обновит метрики
-                            });
-                }
-            } catch (Exception e) {
-                log.error("Ошибка при обновлении метрик для тега {}", tag, e);
-            }
-        }
-    }
-
     @CircuitBreaker(name = "tumblr", fallbackMethod = "fallbackGetPosts")
     private List<TumblrPostDTO> getPostsByTag(String tag) {
         try {

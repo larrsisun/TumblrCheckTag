@@ -28,7 +28,7 @@ public class Subscription {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive;
 
-    @ElementCollection
+    @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "subscription_tags",
             joinColumns = @JoinColumn(name = "subscription_id")
