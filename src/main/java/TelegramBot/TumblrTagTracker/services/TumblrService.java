@@ -24,20 +24,20 @@ public class TumblrService {
     private final JumblrClient tumblrClient;
     private final RedisCacheService cacheService;
     private final TumblrRateLimiterService rateLimiter;
-    private final PostTrackingService postTrackingService;
     private final ContentExtractor contentExtractor;
+    private final PostTrackingService postTrackingService;
 
     private final int FETCH_LIMIT = 20;
 
     @Autowired
     public TumblrService(JumblrClient tumblrClient, RedisCacheService cacheService,
                          TumblrRateLimiterService rateLimiter, PostTrackingService postTrackingService,
-                         ContentExtractor contentExtractor) {
+                         ContentExtractor contentExtractor, PostTrackingService postTrackingService1) {
         this.tumblrClient = tumblrClient;
         this.cacheService = cacheService;
         this.rateLimiter = rateLimiter;
-        this.postTrackingService = postTrackingService;
         this.contentExtractor = contentExtractor;
+        this.postTrackingService = postTrackingService1;
     }
 
     public List<TumblrPostDTO> getNewPostsByTags(Set<String> tags) {
@@ -59,7 +59,9 @@ public class TumblrService {
                 List<TumblrPostDTO> postsForTag = getPostsByTag(tag);
                 for (TumblrPostDTO post : postsForTag) {
                     if (!cacheService.wasSent(post.getId())) {
-                        allPostsMap.putIfAbsent(post.getId(), post);
+                        if (postTrackingService.shouldSendPostNow(post)) {
+                            allPostsMap.putIfAbsent(post.getId(), post);
+                        }
                     }
                 }
                 log.debug("По тегу {} найдено {} новых постов", tag, postsForTag.size());

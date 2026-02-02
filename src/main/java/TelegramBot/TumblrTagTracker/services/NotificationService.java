@@ -41,7 +41,7 @@ public class NotificationService {
             boolean sent = sendPostToUser(chatID, post);
             return CompletableFuture.completedFuture(sent);
         } catch (Exception e) {
-            log.error("Unexpected error sending post {} to user {}", post.getId(), chatID, e);
+            log.error("Непредвиденная ошибка при попытке отправить пост {} пользователю {}", post.getId(), chatID, e);
             return CompletableFuture.completedFuture(false);
         }
     }
