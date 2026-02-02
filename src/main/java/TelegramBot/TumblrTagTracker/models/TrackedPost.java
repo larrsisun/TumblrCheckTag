@@ -19,10 +19,10 @@ public class TrackedPost {
     @Column(name = "post_id", length = 100)
     private String postId;
 
-    @Column(name = "blog_name", length = 500)
+    @Column(name = "blog_name", length = 2000)
     private String blogName;
 
-    @Column(name = "post_url", length = 500)
+    @Column(name = "post_url", length = 2000)
     private String postUrl;
 
     @Column(name = "note_count")
@@ -43,7 +43,7 @@ public class TrackedPost {
     @Column(name = "sent_to_users_count")
     private Integer sentToUsersCount;
 
-    @Column(name = "tags")
+    @Column(name = "tags", length = 2000, columnDefinition = "TEXT")
     private String tags;
 
     public TrackedPost() {

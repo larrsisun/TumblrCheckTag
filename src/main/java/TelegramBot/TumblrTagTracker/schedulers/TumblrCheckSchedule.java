@@ -21,7 +21,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
 @EnableScheduling
@@ -49,7 +52,7 @@ public class TumblrCheckSchedule {
         this.postTrackingService = postTrackingService;
     }
 
-    @Scheduled(fixedDelay = 600000)
+    @Scheduled(fixedDelay = 60000)
     public void checkForNewPosts() {
         try {
             List<Subscription> activeSubscriptions = subscriptionService.getAllActiveSubscriptions();
@@ -60,14 +63,126 @@ public class TumblrCheckSchedule {
             }
 
             log.info("Найдено {} активных подписчиков", activeSubscriptions.size());
-            activeSubscriptions.forEach(this::processSubscriptionAsync);
+
+            // Обработка с ограниченным параллелизмом
+            processSubscriptionsWithLimitedParallelism(activeSubscriptions);
 
         } catch (Exception e) {
             log.error("Ошибка при проверке постов.", e);
         }
     }
 
-    @Scheduled(fixedDelay = 1800000) // 30 minutes
+    private void processSubscriptionsWithLimitedParallelism(List<Subscription> subscriptions) {
+        // Используем Semaphore для ограничения одновременных запросов к Tumblr API
+        Semaphore semaphore = new Semaphore(3); // максимум 3 параллельных запроса
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+        for (Subscription subscription : subscriptions) {
+            futures.add(
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            semaphore.acquire();
+                            processSingleSubscription(subscription);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        } finally {
+                            semaphore.release();
+                        }
+                    }, Executors.newFixedThreadPool(5))
+            );
+        }
+
+        // Ждем завершения всех
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .exceptionally(ex -> {
+                    log.error("Ошибка при обработке подписок", ex);
+                    return null;
+                })
+                .join();
+    }
+
+    private void processSingleSubscription(Subscription subscription) {
+        Set<String> userTags = subscription.getTags();
+        if (userTags == null || userTags.isEmpty()) {
+            return;
+        }
+
+        try {
+            List<TumblrPostDTO> newPosts = tumblrService.getNewPostsByTags(userTags);
+
+            if (newPosts.isEmpty()) {
+                return;
+            }
+
+            log.info("Найдено {} постов для пользователя {}", newPosts.size(), subscription.getChatID());
+
+            // Последовательная отправка постов ОДНОМУ пользователю
+            sendPostsToOneUserSequentially(subscription.getChatID(), newPosts);
+
+        } catch (Exception e) {
+            log.error("Ошибка для пользователя {}", subscription.getChatID(), e);
+        }
+    }
+
+    private void sendPostsToOneUserSequentially(Long chatId, List<TumblrPostDTO> posts) {
+        AtomicInteger sentCount = new AtomicInteger(0);
+
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+
+        for (TumblrPostDTO post : posts) {
+            chain = chain
+                    .thenCompose(v -> notificationService.sendPostToUserAsync(chatId, post))
+                    .thenApply(success -> {
+                        if (success) sentCount.incrementAndGet();
+                        return null;
+                    })
+                    .thenCompose(v -> delay(delayBetweenPosts)); // Задержка между постами
+        }
+
+        chain.thenRun(() -> {
+            log.info("Пользователю {} отправлено {} постов", chatId, sentCount.get());
+        }).exceptionally(ex -> {
+            log.error("Ошибка отправки пользователю {}", chatId, ex);
+            return null;
+        }).join(); // Ждем завершения отправки этому пользователю
+    }
+
+    private void sendAllPostsSequentially(List<UserPostsPair> allUserPosts) {
+        AtomicInteger totalSent = new AtomicInteger(0);
+        AtomicInteger totalFailed = new AtomicInteger(0);
+
+        log.info("Начинаем отправку постов {} пользователям", allUserPosts.size());
+
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+
+        for (UserPostsPair pair : allUserPosts) {
+            for (TumblrPostDTO post : pair.getPosts()) {
+                chain = chain
+                        .thenCompose(v -> notificationService.sendPostToUserAsync(pair.getChatId(), post))
+                        .thenApply(sent -> {
+                            if (sent) {
+                                totalSent.incrementAndGet();
+                            } else {
+                                totalFailed.incrementAndGet();
+                            }
+                            return null;
+                        })
+                        .thenCompose(v -> delay(delayBetweenPosts));
+            }
+            chain = chain.thenCompose(v -> delay(delayBetweenUsers));
+        }
+
+        chain.thenRun(() -> {
+            log.info("Отправка завершена. Успешно: {}, Ошибок: {}",
+                    totalSent.get(), totalFailed.get());
+        }).exceptionally(ex -> {
+            log.error("Ошибка в процессе отправки постов", ex);
+            return null;
+        }).join();
+    }
+
+    @Scheduled(fixedDelay = 1800000)
     public void checkDelayedPosts() {
         try {
             log.info("Проверка отложенных постов.");
@@ -79,98 +194,42 @@ public class TumblrCheckSchedule {
             }
 
             log.info("Найдено {} постов, готовых к отправке.", readyPosts.size());
-
             List<Subscription> activeSubscriptions = subscriptionService.getAllActiveSubscriptions();
-
-            readyPosts.forEach(trackedPost ->
-                    processDelayedPostAsync(trackedPost, activeSubscriptions)
-            );
+            processDelayedPostsSequentially(readyPosts, activeSubscriptions);
 
         } catch (Exception e) {
             log.error("Error checking delayed posts", e);
         }
     }
 
-    @Async("tumblrApiExecutor")
-    protected void processSubscriptionAsync(Subscription subscription) {
-        try {
-            Set<String> userTags = subscription.getTags();
-            if (userTags == null || userTags.isEmpty()) {
-                log.debug("Пользователь {} не имеет тегов, пропускаем", subscription.getChatID());
-                return;
-            }
+    private void processDelayedPostsSequentially(List<TrackedPost> readyPosts,
+                                                 List<Subscription> activeSubscriptions) {
+        List<UserPostsPair> allUserPosts = new ArrayList<>();
 
-            log.debug("Проверка постов для пользователя {} по тегам: {}", subscription.getChatID(), userTags);
+        for (TrackedPost trackedPost : readyPosts) {
+            Set<String> postTags = trackedPost.getTags() != null
+                    ? Set.of(trackedPost.getTags().split(","))
+                    : Set.of();
 
-            // Получаем новые посты по тегам пользователя
-            List<TumblrPostDTO> newPosts = tumblrService.getNewPostsByTags(userTags);
-
-            if (newPosts.isEmpty()) {
-                log.debug("Новых постов для пользователя {} не найдено", subscription.getChatID());
-                return;
-            }
-
-            log.info("Найдено {} новых постов для пользователя {}", newPosts.size(), subscription.getChatID());
-            sendPostsWithDelay(subscription.getChatID(), newPosts);
-
-        } catch (Exception e) {
-            log.error("Ошибка при попытке обработать подписку для пользователя {}", subscription.getChatID());
-        }
-    }
-
-    private void sendPostsWithDelay(Long chatId, List<TumblrPostDTO> posts) {
-        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
-
-        for (TumblrPostDTO post : posts) {
-            chain = chain.thenCompose(v -> notificationService.sendPostToUserAsync(chatId, post)
-                    .thenApply(sent -> {
-                        if (sent) {
-                            log.debug("Пост {} отправлен пользователю {}", post.getId(), chatId);
-                        }
-                        return null;})
-            ).thenCompose(v -> delay(delayBetweenPosts));
-        }
-
-        chain.exceptionally(ex -> {
-            log.error("Ошибка в оповещениях для пользователя {}", chatId, ex);
-            return null;
-        });
-    }
-
-    @Async("notificationExecutor")
-    protected void processDelayedPostAsync(TrackedPost trackedPost, List<Subscription> activeSubscriptions) {
-        try {
-            Set<String> postTags = trackedPost.getTags() != null ? Set.of(trackedPost.getTags().split(",")) : Set.of();
-
-            // найти подписчиков с одинаковыми тегами
-            List<Subscription> matchingUsers = activeSubscriptions.stream()
+            List<Long> matchingUserIds = activeSubscriptions.stream()
                     .filter(sub -> sub.getTags() != null && !sub.getTags().isEmpty())
                     .filter(sub -> hasCommonTags(sub.getTags(), postTags))
+                    .map(Subscription::getChatID)
                     .toList();
 
-            if (matchingUsers.isEmpty()) {
-                log.debug("Нет пересекающихся пользователей для поста {}", trackedPost.getPostId());
-                return;
+            if (!matchingUserIds.isEmpty()) {
+                TumblrPostDTO postDTO = createDTOFromTrackedPost(trackedPost);
+                for (Long userId : matchingUserIds) {
+                    allUserPosts.add(new UserPostsPair(userId, List.of(postDTO)));
+                }
             }
+        }
 
-            TumblrPostDTO postDTO = createDTOFromTrackedPost(trackedPost);
-            CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
-
-            for (Subscription user : matchingUsers) {
-                chain = chain.thenCompose(v -> notificationService.sendPostToUserAsync(user.getChatID(), postDTO))
-                        .thenCompose(v -> delay(delayBetweenUsers));
-            }
-
-            chain.thenRun(() -> {
-                postTrackingService.markPostAsSent(trackedPost.getPostId());
-                log.info("Отложенный пост {} помечен как отправленный", trackedPost.getPostId());
-            }).exceptionally(ex -> {
-                log.error("Ошибка при попытке отправить отложенный пост {}", trackedPost.getPostId(), ex);
-                return null;
-            });
-
-        } catch (Exception e) {
-            log.error("Ошибка в обработке отложенного поста {}", trackedPost.getPostId(), e);
+        if (!allUserPosts.isEmpty()) {
+            sendAllPostsSequentially(allUserPosts);
+            readyPosts.forEach(post ->
+                    postTrackingService.markPostAsSent(post.getPostId())
+            );
         }
     }
 
@@ -187,7 +246,13 @@ public class TumblrCheckSchedule {
     }
 
     private CompletableFuture<Void> delay(long millis) {
-        return CompletableFuture.runAsync(() -> {}, CompletableFuture.delayedExecutor(millis, TimeUnit.MILLISECONDS));
+        return CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(millis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
     }
 
     private boolean hasCommonTags(Set<String> userTags, Set<String> postTags) {
@@ -208,5 +273,18 @@ public class TumblrCheckSchedule {
         }
 
         return dto;
+    }
+
+    private static class UserPostsPair {
+        private final Long chatId;
+        private final List<TumblrPostDTO> posts;
+
+        public UserPostsPair(Long chatId, List<TumblrPostDTO> posts) {
+            this.chatId = chatId;
+            this.posts = posts;
+        }
+
+        public Long getChatId() { return chatId; }
+        public List<TumblrPostDTO> getPosts() { return posts; }
     }
 }

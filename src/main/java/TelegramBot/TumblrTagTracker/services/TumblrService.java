@@ -10,7 +10,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.web.servlet.view.BeanNameViewResolver;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,12 +31,12 @@ public class TumblrService {
     @Autowired
     public TumblrService(JumblrClient tumblrClient, RedisCacheService cacheService,
                          TumblrRateLimiterService rateLimiter, PostTrackingService postTrackingService,
-                         ContentExtractor contentExtractor, PostTrackingService postTrackingService1) {
+                         ContentExtractor contentExtractor) {
         this.tumblrClient = tumblrClient;
         this.cacheService = cacheService;
         this.rateLimiter = rateLimiter;
         this.contentExtractor = contentExtractor;
-        this.postTrackingService = postTrackingService1;
+        this.postTrackingService = postTrackingService;
     }
 
     public List<TumblrPostDTO> getNewPostsByTags(Set<String> tags) {
@@ -85,7 +84,6 @@ public class TumblrService {
 
             Map<String, Object> options = new HashMap<>();
             options.put("limit", FETCH_LIMIT);
-            options.put("filter", "text");
 
             List<Post> posts = tumblrClient.tagged(tag, options);
             log.debug("Получено {} постов по тегу {}", posts.size(), tag);
@@ -149,6 +147,7 @@ public class TumblrService {
                 }
                 if (photoPost.getCaption() != null) {
                     dto.setSummary(photoPost.getCaption());
+                    dto.setBody(photoPost.getCaption());
                 }
                 if (photoPost.getSourceUrl() != null) {
                     dto.setSourceUrl(photoPost.getSourceUrl());
@@ -166,6 +165,7 @@ public class TumblrService {
 
                 if (videoPost.getCaption() != null) {
                     dto.setSummary(videoPost.getCaption());
+                    dto.setBody(videoPost.getCaption());
                 }
 
                 if (videoPost.getSourceUrl() != null) {
@@ -216,7 +216,7 @@ public class TumblrService {
     }
 
     private List<TumblrPostDTO> fallbackGetPosts(String tag, Exception e) {
-        log.warn("Tumblr API недоступен, используем fallback для тега {}", tag);
+        log.warn("Tumblr API недоступен, используем fallback для тега {}", tag, e);
         return Collections.emptyList();
     }
 }
