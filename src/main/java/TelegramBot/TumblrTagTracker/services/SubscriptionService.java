@@ -5,6 +5,8 @@ import TelegramBot.TumblrTagTracker.models.Subscription;
 import TelegramBot.TumblrTagTracker.repositories.SubscriptionRepository;
 import TelegramBot.TumblrTagTracker.util.DatabaseException;
 import TelegramBot.TumblrTagTracker.util.SubscriptionNotFoundException;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +24,9 @@ public class SubscriptionService {
 
     private static final Logger log = LoggerFactory.getLogger(SubscriptionService.class);
     private final SubscriptionRepository subscriptionRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Autowired
     public SubscriptionService(SubscriptionRepository subscriptionRepository) {
@@ -53,13 +58,13 @@ public class SubscriptionService {
     public boolean unsubscribe(Long chatID) {
         try {
             Optional<Subscription> subscription = subscriptionRepository.findByChatID(chatID);
-        if (subscription.isPresent() && Boolean.TRUE.equals(subscription.get().getActive())) {
-            subscriptionRepository.deactivateByChatID(chatID);
-            log.info("Пользователь {} отписан!", chatID);
-            return true;
-        }
-        log.warn("Попытка отписать неподписанного пользователя {}", chatID);
-        return false;
+            if (subscription.isPresent() && Boolean.TRUE.equals(subscription.get().getActive())) {
+                subscriptionRepository.deactivateByChatID(chatID);
+                log.info("Пользователь {} отписан!", chatID);
+                return true;
+            }
+            log.warn("Попытка отписать неподписанного пользователя {}", chatID);
+            return false;
         } catch (DataAccessException e) {
             log.error("Ошибка в базе данных при попытке отписать пользователя {}", chatID);
             throw new DatabaseException("Не удалось отписать пользователя ввиду ошибки со стороны БД");
@@ -77,14 +82,27 @@ public class SubscriptionService {
 
     }
 
+    // ИСПРАВЛЕНИЕ: Принудительно получаем свежие данные из БД
+    @Transactional(readOnly = true)
     public Set<String> getTags(Long chatID) {
         try {
+            // Очищаем кеш EntityManager для этой сущности, если она есть
+            Optional<Subscription> cachedSub = subscriptionRepository.findByChatID(chatID);
+            if (cachedSub.isPresent()) {
+                entityManager.refresh(cachedSub.get()); // Принудительно обновляем из БД
+                log.debug("Теги для пользователя {} обновлены из БД: {}", chatID, cachedSub.get().getTags());
+                return cachedSub.get().getTags();
+            }
+            return Set.of();
+        } catch (DataAccessException e) {
+            log.error("Database error while getting tags for user {}", chatID, e);
+            return Set.of();
+        } catch (Exception e) {
+            log.error("Error refreshing subscription for user {}", chatID, e);
+            // Fallback: пытаемся получить без refresh
             return getSubscription(chatID)
                     .map(Subscription::getTags)
                     .orElse(Set.of());
-        } catch (DataAccessException e) {
-            log.error("Database error while getting tags for user {}", chatID, e);
-            return Set.of("all"); // Безопасное значение по умолчанию
         }
     }
 
@@ -93,7 +111,10 @@ public class SubscriptionService {
             Subscription subscription = getSubscription(chatId)
                     .orElseThrow(() -> new SubscriptionNotFoundException("Подписка не найдена, сначала подпишитесь (/subscribe)."));
             subscription.setTags(tags);
-            return subscriptionRepository.save(subscription);
+            Subscription saved = subscriptionRepository.save(subscription);
+            entityManager.flush(); // ИСПРАВЛЕНИЕ: Принудительно сбрасываем изменения в БД
+            log.info("Теги пользователя {} обновлены: {}", chatId, tags);
+            return saved;
         } catch (SubscriptionNotFoundException e) {
             throw e; // Пробрасываем дальше
         } catch (DataAccessException e) {

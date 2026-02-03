@@ -3,10 +3,7 @@ package TelegramBot.TumblrTagTracker.schedulers;
 import TelegramBot.TumblrTagTracker.dto.TumblrPostDTO;
 import TelegramBot.TumblrTagTracker.models.Subscription;
 import TelegramBot.TumblrTagTracker.models.TrackedPost;
-import TelegramBot.TumblrTagTracker.services.NotificationService;
-import TelegramBot.TumblrTagTracker.services.PostTrackingService;
-import TelegramBot.TumblrTagTracker.services.SubscriptionService;
-import TelegramBot.TumblrTagTracker.services.TumblrService;
+import TelegramBot.TumblrTagTracker.services.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,13 +40,19 @@ public class TumblrCheckSchedule {
     private final TumblrService tumblrService;
     private final NotificationService notificationService;
     private final PostTrackingService postTrackingService;
+    private final RedisCacheService redisCacheService;
 
     @Autowired
-    public TumblrCheckSchedule(SubscriptionService subscriptionService, TumblrService tumblrService, NotificationService notificationService, PostTrackingService postTrackingService) {
+    public TumblrCheckSchedule(SubscriptionService subscriptionService,
+                               TumblrService tumblrService,
+                               NotificationService notificationService,
+                               PostTrackingService postTrackingService,
+                               RedisCacheService redisCacheService) {
         this.subscriptionService = subscriptionService;
         this.tumblrService = tumblrService;
         this.notificationService = notificationService;
         this.postTrackingService = postTrackingService;
+        this.redisCacheService = redisCacheService;
     }
 
     @Scheduled(fixedDelay = 60000)
@@ -134,7 +137,11 @@ public class TumblrCheckSchedule {
             chain = chain
                     .thenCompose(v -> notificationService.sendPostToUserAsync(chatId, post))
                     .thenApply(success -> {
-                        if (success) sentCount.incrementAndGet();
+                        if (success) {
+                            sentCount.incrementAndGet();
+                            // ИСПРАВЛЕНИЕ: Помечаем пост в PostTrackingService
+                            postTrackingService.markPostAsSent(post.getId());
+                        }
                         return null;
                     })
                     .thenCompose(v -> delay(delayBetweenPosts)); // Задержка между постами
@@ -163,6 +170,9 @@ public class TumblrCheckSchedule {
                         .thenApply(sent -> {
                             if (sent) {
                                 totalSent.incrementAndGet();
+                                // ИСПРАВЛЕНИЕ: Помечаем пост как отправленный в Redis
+                                redisCacheService.markAsSentIfNotSent(post.getId());
+                                log.debug("Пост {} помечен как отправленный в Redis", post.getId());
                             } else {
                                 totalFailed.incrementAndGet();
                             }
@@ -207,29 +217,57 @@ public class TumblrCheckSchedule {
         List<UserPostsPair> allUserPosts = new ArrayList<>();
 
         for (TrackedPost trackedPost : readyPosts) {
+            // Проверяем, не был ли пост уже отправлен (через Redis)
+            if (redisCacheService.wasSent(trackedPost.getPostId())) {
+                log.debug("Пост {} уже был отправлен ранее, пропускаем", trackedPost.getPostId());
+                continue;
+            }
+
             Set<String> postTags = trackedPost.getTags() != null
                     ? Set.of(trackedPost.getTags().split(","))
                     : Set.of();
 
-            List<Long> matchingUserIds = activeSubscriptions.stream()
-                    .filter(sub -> sub.getTags() != null && !sub.getTags().isEmpty())
-                    .filter(sub -> hasCommonTags(sub.getTags(), postTags))
-                    .map(Subscription::getChatID)
-                    .toList();
+            log.info("Проверка отложенного поста {} с тегами: {}", trackedPost.getPostId(), postTags);
 
-            if (!matchingUserIds.isEmpty()) {
-                TumblrPostDTO postDTO = createDTOFromTrackedPost(trackedPost);
-                for (Long userId : matchingUserIds) {
+            // ИСПРАВЛЕНИЕ: Для каждого пользователя получаем АКТУАЛЬНЫЕ теги из БД
+            for (Subscription subscription : activeSubscriptions) {
+                Long userId = subscription.getChatID();
+
+                // Получаем свежие теги пользователя НАПРЯМУЮ из БД (с обновлением)
+                Set<String> currentUserTags = subscriptionService.getTags(userId);
+
+                log.info("Пользователь {}: текущие теги = {}, теги поста = {}",
+                        userId, currentUserTags, postTags);
+
+                // Проверяем, есть ли у пользователя СЕЙЧАС теги, совпадающие с постом
+                if (currentUserTags != null && !currentUserTags.isEmpty()
+                        && hasCommonTags(currentUserTags, postTags)) {
+                    TumblrPostDTO postDTO = createDTOFromTrackedPost(trackedPost);
                     allUserPosts.add(new UserPostsPair(userId, List.of(postDTO)));
+                    log.info("✓ Пост {} БУДЕТ отправлен пользователю {} (теги совпадают: {})",
+                            trackedPost.getPostId(), userId,
+                            currentUserTags.stream().filter(postTags::contains).toList());
+                } else {
+                    if (currentUserTags == null || currentUserTags.isEmpty()) {
+                        log.info("✗ Пост {} НЕ будет отправлен пользователю {} (нет тегов)",
+                                trackedPost.getPostId(), userId);
+                    } else {
+                        log.info("✗ Пост {} НЕ будет отправлен пользователю {} (теги не совпадают. Теги пользователя: {}, теги поста: {})",
+                                trackedPost.getPostId(), userId, currentUserTags, postTags);
+                    }
                 }
             }
         }
 
         if (!allUserPosts.isEmpty()) {
+            log.info("Отправляем {} отложенных постов", allUserPosts.size());
             sendAllPostsSequentially(allUserPosts);
-            readyPosts.forEach(post ->
-                    postTrackingService.markPostAsSent(post.getPostId())
-            );
+
+            // ИСПРАВЛЕНИЕ: Помечаем посты как отправленные ПОСЛЕ успешной отправки
+            readyPosts.forEach(post -> {
+                postTrackingService.markPostAsSent(post.getPostId());
+                log.debug("Отложенный пост {} помечен как отправленный в БД", post.getPostId());
+            });
         }
     }
 
