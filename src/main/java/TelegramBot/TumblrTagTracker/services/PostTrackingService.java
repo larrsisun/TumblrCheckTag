@@ -41,19 +41,19 @@ public class PostTrackingService {
         this.trackedPostRepository = trackedPostRepository;
     }
 
-    // Проверка, нужно ли отправить пост сейчас
+    // Проверка, нужно ли отправить пост сейчас (глобальные фильтры)
     public boolean shouldSendPostNow(TumblrPostDTO post) {
 
         Optional<TrackedPost> trackedPost = trackedPostRepository.findByPostId(post.getId());
 
         if (trackedPost.isPresent()) {
             TrackedPost tracked = trackedPost.get();
-            trackedPostRepository.save(tracked);
 
             if (post.getNoteCount() != null) {
                 tracked.setNoteCount(Integer.parseInt(post.getNoteCount()));
             }
             tracked.setLastCheckedAt(LocalDateTime.now());
+            trackedPostRepository.save(tracked);
 
             // Проверяем условия отправки
             boolean meetsThreshold = tracked.meetsMinimumThreshold(minimumNotes);
@@ -63,7 +63,10 @@ public class PostTrackingService {
                 log.debug("Пост {} сразу прошел фильтры.", post.getId());
                 return true;
             } else {
-                log.debug("Пост {} не прошел фильтры.", post.getId());
+                log.debug("Пост {} не прошел фильтры (noteCount: {}, age: {}h).",
+                        post.getId(), tracked.getNoteCount(),
+                        tracked.getPostCreatedAt() != null ?
+                                java.time.Duration.between(tracked.getPostCreatedAt(), LocalDateTime.now()).toHours() : "unknown");
                 return false;
             }
         } else {
@@ -81,8 +84,8 @@ public class PostTrackingService {
                 log.debug("Новый пост {} сразу прошел фильтр.", post.getId());
                 return true;
             } else {
-                log.debug("Новый пост {} добавлен для отслеживания.",
-                        post.getId());
+                log.debug("Новый пост {} добавлен для отслеживания (noteCount: {}).",
+                        post.getId(), newTracked.getNoteCount());
                 return false;
             }
         }
@@ -92,7 +95,7 @@ public class PostTrackingService {
         trackedPostRepository.findByPostId(postId).ifPresent(tracked -> {
             tracked.markAsSent();
             trackedPostRepository.save(tracked);
-            log.debug("Пост {} помечен как отправленный", postId);
+            log.debug("Пост {} помечен как отправленный (глобально)", postId);
         });
     }
 
@@ -101,7 +104,9 @@ public class PostTrackingService {
         List<TrackedPost> candidates = trackedPostRepository.findUnsentPostsWithMinimumNotes(minimumNotes);
 
         // Дополнительно фильтруем по возрасту
-        return candidates.stream().filter(post -> post.isOldEnough(minimumAgeHours)).collect(Collectors.toList());
+        return candidates.stream()
+                .filter(post -> post.isOldEnough(minimumAgeHours))
+                .collect(Collectors.toList());
     }
 
     // Находит посты для повторной проверки метрик
@@ -121,6 +126,29 @@ public class PostTrackingService {
         }
     }
 
+    /**
+     * Обновляет метрики поста (количество заметок)
+     */
+    public void updatePostMetrics(String postId, int noteCount) {
+        if (postId == null) {
+            log.warn("Попытка обновить метрики для null postId");
+            return;
+        }
+
+        trackedPostRepository.findByPostId(postId).ifPresent(tracked -> {
+            int oldCount = tracked.getNoteCount() != null ? tracked.getNoteCount() : 0;
+
+            if (noteCount != oldCount) {
+                tracked.setNoteCount(noteCount);
+                tracked.setLastCheckedAt(LocalDateTime.now());
+                trackedPostRepository.save(tracked);
+
+                log.debug("Обновлены метрики поста {}: {} -> {} заметок",
+                        postId, oldCount, noteCount);
+            }
+        });
+    }
+
     // Создаём пост для отслеживания
     private TrackedPost createTrackedPost(TumblrPostDTO post) {
         TrackedPost tracked = new TrackedPost(post.getId());
@@ -131,7 +159,7 @@ public class PostTrackingService {
             tracked.setPostCreatedAt(LocalDateTime.ofEpochSecond(post.getTimestamp(), 0, ZoneOffset.UTC));
         }
 
-        if (post.getTags() != null) {
+        if (post.getTags() != null && !post.getTags().isEmpty()) {
             tracked.setTags(String.join(",", post.getTags()));
         }
         return tracked;

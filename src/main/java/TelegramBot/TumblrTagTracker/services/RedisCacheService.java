@@ -13,7 +13,7 @@ import java.time.Duration;
 public class RedisCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisCacheService.class);
-    private static final String PREFIX_SENT_POSTS = "sent_post:";
+    private static final String PREFIX_USER_POST = "user_post:";
     private static final Duration DEFAULT_TTL = Duration.ofHours(24);
 
     private final RedisTemplate<String, String> redisTemplate;
@@ -23,27 +23,29 @@ public class RedisCacheService {
         this.redisTemplate = redisTemplate;
     }
 
-    public boolean wasSent(String postID) {
+    // Проверка: был ли пост отправлен ЭТОМУ пользователю
+    public boolean wasSentToUser(Long userId, String postId) {
         try {
-            String key = PREFIX_SENT_POSTS + postID;
+            String key = PREFIX_USER_POST + userId + ":" + postId;
             Boolean exists = redisTemplate.hasKey(key);
             return Boolean.TRUE.equals(exists);
-        } catch (RedisCacheException e) {
-            log.error("Не удалось проверить, отправлен ли пост {}.", postID, e);
+        } catch (Exception e) {
+            log.error("Не удалось проверить отправку поста {} пользователю {}", postId, userId, e);
             return false;
         }
     }
 
-    public boolean markAsSentIfNotSent(String postID) {
+    // Пометить как отправленный ЭТОМУ пользователю
+    public boolean markAsSentToUser(Long userId, String postId) {
         try {
-            String key = PREFIX_SENT_POSTS + postID;
+            String key = PREFIX_USER_POST + userId + ":" + postId;
             Boolean wasSet = redisTemplate.opsForValue().setIfAbsent(key, "1", DEFAULT_TTL);
-            log.debug("Пост {} помечен как отправленный (TTL: {})", postID, DEFAULT_TTL);
+            log.debug("Пост {} помечен как отправленный пользователю {} (TTL: {})",
+                    postId, userId, DEFAULT_TTL);
             return Boolean.TRUE.equals(wasSet);
         } catch (Exception e) {
-            log.error("Не удалось пометить пост {} как отправленный.", postID, e);
+            log.error("Не удалось пометить пост {} для пользователя {}", postId, userId, e);
             return false;
         }
     }
-
 }

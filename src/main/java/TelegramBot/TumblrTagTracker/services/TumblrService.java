@@ -21,7 +21,6 @@ public class TumblrService {
     private final Logger log = LoggerFactory.getLogger(TumblrService.class);
 
     private final JumblrClient tumblrClient;
-    private final RedisCacheService cacheService;
     private final TumblrRateLimiterService rateLimiter;
     private final ContentExtractor contentExtractor;
     private final PostTrackingService postTrackingService;
@@ -29,16 +28,20 @@ public class TumblrService {
     private final int FETCH_LIMIT = 20;
 
     @Autowired
-    public TumblrService(JumblrClient tumblrClient, RedisCacheService cacheService,
-                         TumblrRateLimiterService rateLimiter, PostTrackingService postTrackingService,
+    public TumblrService(JumblrClient tumblrClient,
+                         TumblrRateLimiterService rateLimiter,
+                         PostTrackingService postTrackingService,
                          ContentExtractor contentExtractor) {
         this.tumblrClient = tumblrClient;
-        this.cacheService = cacheService;
         this.rateLimiter = rateLimiter;
         this.contentExtractor = contentExtractor;
         this.postTrackingService = postTrackingService;
     }
 
+    /**
+     * Получает новые посты по тегам.
+     * ВАЖНО: Больше не фильтрует по per-user доставке - это делается в scheduler
+     */
     public List<TumblrPostDTO> getNewPostsByTags(Set<String> tags) {
 
         if (tags == null || tags.isEmpty()) {
@@ -55,25 +58,26 @@ public class TumblrService {
                     log.warn("Достигнут лимит запросов, прерываем сбор постов");
                     break;
                 }
+
                 List<TumblrPostDTO> postsForTag = getPostsByTag(tag);
+
                 for (TumblrPostDTO post : postsForTag) {
-                    if (!cacheService.wasSent(post.getId())) {
-                        if (postTrackingService.shouldSendPostNow(post)) {
-                            allPostsMap.putIfAbsent(post.getId(), post);
-                        }
+                    // Проверяем только глобальные фильтры (возраст, заметки)
+                    if (postTrackingService.shouldSendPostNow(post)) {
+                        allPostsMap.putIfAbsent(post.getId(), post);
                     }
                 }
-                log.debug("По тегу {} найдено {} новых постов", tag, postsForTag.size());
+
+                log.debug("По тегу {} найдено {} постов, прошедших фильтры",
+                        tag, postsForTag.size());
+
             } catch (Exception e) {
                 log.error("Ошибка при получении постов по тегу {}", tag, e);
             }
         }
-        // Фильтруем только новые посты (которые еще не были отправлены)
-        List<TumblrPostDTO> newPosts = allPostsMap.values().stream()
-                .filter(post -> post.getId() != null && !cacheService.wasSent(post.getId()))
-                .collect(Collectors.toList());
 
-        log.info("Найдено {} новых постов", newPosts.size());
+        List<TumblrPostDTO> newPosts = new ArrayList<>(allPostsMap.values());
+        log.info("Найдено {} постов всего", newPosts.size());
         return newPosts;
     }
 
@@ -86,7 +90,7 @@ public class TumblrService {
             options.put("limit", FETCH_LIMIT);
 
             List<Post> posts = tumblrClient.tagged(tag, options);
-            log.debug("Получено {} постов по тегу {}", posts.size(), tag);
+            log.debug("Получено {} постов по тегу {} от Tumblr API", posts.size(), tag);
 
             return posts.stream()
                     .map(this::convertToDTO)
@@ -122,13 +126,13 @@ public class TumblrService {
         // В зависимости от типа поста извлекаем разные данные
         switch (post.getType()) {
 
-            case Post.PostType.TEXT:
+            case TEXT:
                 TextPost textPost = (TextPost) post;
 
                 Optional.ofNullable(textPost.getBody()).ifPresent(body -> {
-                        dto.setBody(body);
-                        contentExtractor.extractFirstImageUrl(body).ifPresent(dto::setPhotoUrl);
-                        contentExtractor.extractFirstVideoUrl(body).ifPresent(dto::setVideoUrl);
+                    dto.setBody(body);
+                    contentExtractor.extractFirstImageUrl(body).ifPresent(dto::setPhotoUrl);
+                    contentExtractor.extractFirstVideoUrl(body).ifPresent(dto::setVideoUrl);
                 });
 
                 if (textPost.getTitle() != null) {
@@ -136,11 +140,10 @@ public class TumblrService {
                 }
                 break;
 
-            case Post.PostType.PHOTO:
+            case PHOTO:
                 PhotoPost photoPost = (PhotoPost) post;
                 if (photoPost.getPhotos() != null && !photoPost.getPhotos().isEmpty()) {
-
-                    Photo photo = photoPost.getPhotos().getFirst();
+                    Photo photo = photoPost.getPhotos().get(0);
                     if (photo != null && photo.getOriginalSize() != null) {
                         dto.setPhotoUrl(photo.getOriginalSize().getUrl());
                     }
@@ -154,10 +157,10 @@ public class TumblrService {
                 }
                 break;
 
-            case Post.PostType.VIDEO:
+            case VIDEO:
                 VideoPost videoPost = (VideoPost) post;
                 if (videoPost.getVideos() != null && !videoPost.getVideos().isEmpty()) {
-                    Video video = videoPost.getVideos().getFirst();
+                    Video video = videoPost.getVideos().get(0);
                     if (video != null) {
                         dto.setVideoUrl(video.getEmbedCode());
                     }
@@ -171,10 +174,9 @@ public class TumblrService {
                 if (videoPost.getSourceUrl() != null) {
                     dto.setSourceUrl(videoPost.getSourceUrl());
                 }
-
                 break;
 
-            case Post.PostType.QUOTE:
+            case QUOTE:
                 QuotePost quotePost = (QuotePost) post;
                 if (quotePost.getText() != null) {
                     dto.setBody(quotePost.getText());
@@ -184,7 +186,7 @@ public class TumblrService {
                 }
                 break;
 
-            case Post.PostType.LINK:
+            case LINK:
                 LinkPost linkPost = (LinkPost) post;
                 if (linkPost.getTitle() != null) {
                     dto.setSummary(linkPost.getTitle());
@@ -197,7 +199,7 @@ public class TumblrService {
                 }
                 break;
 
-            case Post.PostType.ANSWER:
+            case ANSWER:
                 AnswerPost answerPost = (AnswerPost) post;
 
                 if (answerPost.getQuestion() != null) {
@@ -207,11 +209,13 @@ public class TumblrService {
                 if (answerPost.getAnswer() != null) {
                     dto.setAnswer(answerPost.getAnswer());
                 }
+                break;
 
             default:
                 dto.setSummary(post.getType() + " post");
                 break;
         }
+
         return dto;
     }
 

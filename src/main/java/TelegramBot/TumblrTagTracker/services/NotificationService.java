@@ -25,18 +25,16 @@ public class NotificationService {
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
     private final TelegramLongPollingBot bot;
-    private final RedisCacheService redisCacheService;
     private final ContentExtractor contentExtractor;
 
     @Autowired
-    public NotificationService(TelegramLongPollingBot bot, RedisCacheService redisCacheService, ContentExtractor contentExtractor) {
+    public NotificationService(TelegramLongPollingBot bot, ContentExtractor contentExtractor) {
         this.bot = bot;
-        this.redisCacheService = redisCacheService;
         this.contentExtractor = contentExtractor;
     }
 
     @Async("notificationExecutor")
-    public CompletableFuture<Boolean> sendPostToUserAsync (Long chatID, TumblrPostDTO post) {
+    public CompletableFuture<Boolean> sendPostToUserAsync(Long chatID, TumblrPostDTO post) {
         try {
             boolean sent = sendPostToUser(chatID, post);
             return CompletableFuture.completedFuture(sent);
@@ -49,15 +47,14 @@ public class NotificationService {
     @CircuitBreaker(name = "telegram", fallbackMethod = "fallbackSendMessage")
     @Retry(name = "telegram")
     public boolean sendPostToUser(Long chatID, TumblrPostDTO post) {
-        if (redisCacheService.wasSent(post.getId())) {
-            return false;
-        }
+        // УБРАЛИ глобальную проверку wasSent!
+        // Теперь проверка per-user в UserPostTrackingService
 
         try {
             String message = post.getFormattedMessage();
             String imageUrl = getImageUrl(post);
             String videoUrl = getVideoUrl(post);
-            
+
             // Если есть изображение, отправляем фото с подписью
             if (imageUrl != null && !imageUrl.isEmpty()) {
                 sendPhotoWithCaption(chatID, imageUrl, message);
@@ -67,20 +64,18 @@ public class NotificationService {
                 sendTextMessage(chatID, message);
             }
 
-            redisCacheService.markAsSentIfNotSent(post.getId());
-            log.info("Пост {} отправлен человеку {}", post.getId(), chatID);
+            log.info("Пост {} отправлен пользователю {}", post.getId(), chatID);
             return true;
 
         } catch (TelegramApiException e) {
-            log.error("Не удалось отправить пост {} человеку {}", post.getId(), chatID, e);
+            log.error("Не удалось отправить пост {} пользователю {}", post.getId(), chatID, e);
             try {
                 // Fallback: отправляем простым текстом
                 sendTextMessage(chatID, post.getFormattedMessage());
-                redisCacheService.markAsSentIfNotSent(post.getId());
-                log.info("Пост {} отправлен человеку {} простым текстом", post.getId(), chatID);
-                return  true;
+                log.info("Пост {} отправлен пользователю {} простым текстом", post.getId(), chatID);
+                return true;
             } catch (TelegramApiException ex) {
-                log.error("Не удалось отправить ни обычный, ни текстовый пост {} человеку {}", post.getId(), chatID, ex);
+                log.error("Полностью не удалось отправить пост {} пользователю {}", post.getId(), chatID, ex);
                 return false;
             }
         }
@@ -99,7 +94,6 @@ public class NotificationService {
                 .or(() -> contentExtractor.extractFirstVideoUrl(post.getBody()))
                 .orElse(null);
     }
-
 
     private void sendTextMessage(Long chatID, String text) throws TelegramApiException {
         SendMessage message = new SendMessage();
@@ -126,7 +120,7 @@ public class NotificationService {
         if (caption != null && caption.length() > 1024) {
             caption = caption.substring(0, 1021) + "...";
         }
-        
+
         if (caption != null && !caption.trim().isEmpty()) {
             photo.setCaption(caption);
             photo.setParseMode("MarkdownV2");
