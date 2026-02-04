@@ -25,12 +25,8 @@ public class TumblrService {
     private final ContentExtractor contentExtractor;
     private final PostTrackingService postTrackingService;
 
-    private final int FETCH_LIMIT = 20;
-
     @Autowired
-    public TumblrService(JumblrClient tumblrClient,
-                         TumblrRateLimiterService rateLimiter,
-                         PostTrackingService postTrackingService,
+    public TumblrService(JumblrClient tumblrClient, TumblrRateLimiterService rateLimiter, PostTrackingService postTrackingService,
                          ContentExtractor contentExtractor) {
         this.tumblrClient = tumblrClient;
         this.rateLimiter = rateLimiter;
@@ -38,46 +34,76 @@ public class TumblrService {
         this.postTrackingService = postTrackingService;
     }
 
-    /**
-     * Получает новые посты по тегам.
-     * ВАЖНО: Больше не фильтрует по per-user доставке - это делается в scheduler
-     */
     public List<TumblrPostDTO> getNewPostsByTags(Set<String> tags) {
 
         if (tags == null || tags.isEmpty()) {
-            log.debug("Теги не указаны, возвращаем пустой список");
+            log.debug("Теги не указаны.");
             return Collections.emptyList();
         }
 
-        log.info("Поиск постов по тегам: {}", tags);
+        log.info("=== НАЧАЛО СБОРА ПОСТОВ ПО ТЕГАМ ===");
+        log.info("Всего тегов для проверки: {}", tags.size());
+        log.info("Теги: {}", tags);
+
         Map<String, TumblrPostDTO> allPostsMap = new ConcurrentHashMap<>();
 
+        int totalPostsFromApi = 0;
+        int passedFilters = 0;
+        int failedFilters = 0;
+        int tagIndex = 0;
+
         for (String tag : tags) {
+            tagIndex++;
             try {
+                log.info("→ [{}/{}] Проверяем тег: '{}'", tagIndex, tags.size(), tag);
+
                 if (!rateLimiter.tryAcquire()) {
                     log.warn("Достигнут лимит запросов, прерываем сбор постов");
                     break;
                 }
 
                 List<TumblrPostDTO> postsForTag = getPostsByTag(tag);
+                int postsCount = postsForTag.size();
+                totalPostsFromApi += postsCount;
+
+                log.info("API вернул {} постов по тегу '{}'", postsCount, tag);
+
+                if (postsForTag.isEmpty()) {
+                    log.warn("По тегу '{}' не найдено постов!", tag);
+                    break;
+                }
+
+                // Логируем каждый пост
+                int accepted = 0;
+                int rejected = 0;
 
                 for (TumblrPostDTO post : postsForTag) {
-                    // Проверяем только глобальные фильтры (возраст, заметки)
+
                     if (postTrackingService.shouldSendPostNow(post)) {
                         allPostsMap.putIfAbsent(post.getId(), post);
+                        accepted++;
+                        passedFilters++;
+                    } else {
+                        rejected++;
+                        failedFilters++;
                     }
                 }
 
-                log.debug("По тегу {} найдено {} постов, прошедших фильтры",
-                        tag, postsForTag.size());
+                log.info("  Результат по тегу '{}': принято = {}, отклонено={}", tag, accepted, rejected);
 
             } catch (Exception e) {
-                log.error("Ошибка при получении постов по тегу {}", tag, e);
+                log.error("Ошибка при получении постов по тегу '{}'", tag, e);
             }
         }
 
         List<TumblrPostDTO> newPosts = new ArrayList<>(allPostsMap.values());
-        log.info("Найдено {} постов всего", newPosts.size());
+
+        log.info("=== ИТОГИ СБОРА ПОСТОВ ===");
+        log.info("Всего постов от API: {}", totalPostsFromApi);
+        log.info("Прошли фильтры: {}", passedFilters);
+        log.info("Не прошли фильтры: {}", failedFilters);
+        log.info("Уникальных постов для отправки: {}", newPosts.size());
+
         return newPosts;
     }
 
@@ -87,20 +113,24 @@ public class TumblrService {
             rateLimiter.waitForRateLimit();
 
             Map<String, Object> options = new HashMap<>();
+            int FETCH_LIMIT = 20;
             options.put("limit", FETCH_LIMIT);
 
+            log.debug("Запрос к Tumblr API для тега '{}'...", tag);
             List<Post> posts = tumblrClient.tagged(tag, options);
-            log.debug("Получено {} постов по тегу {} от Tumblr API", posts.size(), tag);
+            log.debug("Получено {} постов от API по тегу '{}'", posts.size(), tag);
 
-            return posts.stream()
-                    .map(this::convertToDTO)
-                    .collect(Collectors.toList());
+            if (posts.isEmpty()) {
+                log.warn("API не вернул постов по тегу '{}'", tag);
+            }
+
+            return posts.stream().map(this::convertToDTO).collect(Collectors.toList());
 
         } catch (RequestNotPermitted r) {
-            log.warn("Рейт лимит превышен для тега {}", tag);
+            log.warn("Рейт лимит превышен для тега '{}'", tag);
             return Collections.emptyList();
         } catch (Exception e) {
-            log.error("Ошибка при обращении к Tumblr API по тегу {}", tag, e);
+            log.error("Ошибка при обращении к Tumblr API по тегу '{}'", tag, e);
             throw e; // Пробрасываем для CircuitBreaker
         }
     }
@@ -143,7 +173,7 @@ public class TumblrService {
             case PHOTO:
                 PhotoPost photoPost = (PhotoPost) post;
                 if (photoPost.getPhotos() != null && !photoPost.getPhotos().isEmpty()) {
-                    Photo photo = photoPost.getPhotos().get(0);
+                    Photo photo = photoPost.getPhotos().getFirst();
                     if (photo != null && photo.getOriginalSize() != null) {
                         dto.setPhotoUrl(photo.getOriginalSize().getUrl());
                     }
@@ -160,7 +190,7 @@ public class TumblrService {
             case VIDEO:
                 VideoPost videoPost = (VideoPost) post;
                 if (videoPost.getVideos() != null && !videoPost.getVideos().isEmpty()) {
-                    Video video = videoPost.getVideos().get(0);
+                    Video video = videoPost.getVideos().getFirst();
                     if (video != null) {
                         dto.setVideoUrl(video.getEmbedCode());
                     }
@@ -220,7 +250,7 @@ public class TumblrService {
     }
 
     private List<TumblrPostDTO> fallbackGetPosts(String tag, Exception e) {
-        log.warn("Tumblr API недоступен, используем fallback для тега {}", tag, e);
+        log.warn("Tumblr API недоступен, используем fallback для тега '{}'", tag, e);
         return Collections.emptyList();
     }
 }

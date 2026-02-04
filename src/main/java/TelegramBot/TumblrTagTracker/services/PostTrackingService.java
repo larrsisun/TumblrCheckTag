@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -22,10 +23,10 @@ public class PostTrackingService {
 
     private static final Logger log = LoggerFactory.getLogger(PostTrackingService.class);
 
-    @Value("${tumblr.filter.minimum.notes:5}")
+    @Value("${tumblr.filter.minimum.notes}")
     private int minimumNotes;
 
-    @Value("${tumblr.filter.minimum.age.hours:0}")
+    @Value("${tumblr.filter.minimum.age.hours}")
     private int minimumAgeHours;
 
     @Value("${tumblr.filter.recheck.interval.hours:6}")
@@ -126,9 +127,6 @@ public class PostTrackingService {
         }
     }
 
-    /**
-     * Обновляет метрики поста (количество заметок)
-     */
     public void updatePostMetrics(String postId, int noteCount) {
         if (postId == null) {
             log.warn("Попытка обновить метрики для null postId");

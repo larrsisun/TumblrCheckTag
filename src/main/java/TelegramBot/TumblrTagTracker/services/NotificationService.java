@@ -7,7 +7,6 @@ import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -17,7 +16,6 @@ import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 
 @Service
 public class NotificationService {
@@ -33,23 +31,9 @@ public class NotificationService {
         this.contentExtractor = contentExtractor;
     }
 
-    @Async("notificationExecutor")
-    public CompletableFuture<Boolean> sendPostToUserAsync(Long chatID, TumblrPostDTO post) {
-        try {
-            boolean sent = sendPostToUser(chatID, post);
-            return CompletableFuture.completedFuture(sent);
-        } catch (Exception e) {
-            log.error("Непредвиденная ошибка при попытке отправить пост {} пользователю {}", post.getId(), chatID, e);
-            return CompletableFuture.completedFuture(false);
-        }
-    }
-
     @CircuitBreaker(name = "telegram", fallbackMethod = "fallbackSendMessage")
     @Retry(name = "telegram")
     public boolean sendPostToUser(Long chatID, TumblrPostDTO post) {
-        // УБРАЛИ глобальную проверку wasSent!
-        // Теперь проверка per-user в UserPostTrackingService
-
         try {
             String message = post.getFormattedMessage();
             String imageUrl = getImageUrl(post);
@@ -64,7 +48,7 @@ public class NotificationService {
                 sendTextMessage(chatID, message);
             }
 
-            log.info("Пост {} отправлен пользователю {}", post.getId(), chatID);
+            log.debug("Пост {} отправлен пользователю {}", post.getId(), chatID);
             return true;
 
         } catch (TelegramApiException e) {

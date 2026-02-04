@@ -30,51 +30,36 @@ public class UserPostTrackingService {
         this.cacheService = cacheService;
     }
 
-    /**
-     * Проверяет, нужно ли отправить пост этому пользователю
-     */
     public boolean shouldSendToUser(Long userId, TumblrPostDTO post, Set<String> userTags) {
-        log.info("→ shouldSendToUser: userId={}, postId={}, userTags={}, postTags={}",
-                userId, post.getId(), userTags, post.getTags());
 
         if (userId == null || post == null || post.getId() == null) {
-            log.warn("✗ Некорректные параметры: userId={}, postId={}",
-                    userId, post != null ? post.getId() : "null");
             return false;
         }
 
         if (userTags == null || userTags.isEmpty()) {
-            log.warn("✗ У пользователя {} нет тегов", userId);
             return false;
         }
 
-        // Сначала проверяем Redis (быстро)
+        // Сначала проверяем Redis
         if (cacheService.wasSentToUser(userId, post.getId())) {
-            log.info("✗ Пост {} уже был отправлен пользователю {} (Redis)", post.getId(), userId);
+            log.info("Пост {} уже был отправлен пользователю {} (Redis)", post.getId(), userId);
             return false;
         }
 
         // Проверяем БД
-        Optional<UserPostDelivery> existing = deliveryRepository
-                .findByUserIdAndPostId(userId, post.getId());
+        Optional<UserPostDelivery> existing = deliveryRepository.findByUserIdAndPostId(userId, post.getId());
 
         if (existing.isPresent() && existing.get().getWasSent()) {
-            log.info("✗ Пост {} уже был отправлен пользователю {} (БД)", post.getId(), userId);
+            log.info("Пост {} уже был отправлен пользователю {} (БД)", post.getId(), userId);
             cacheService.markAsSentToUser(userId, post.getId());
             return false;
         }
 
         // Проверяем, совпадают ли теги
         Set<String> postTags = post.getTags() != null ? new HashSet<>(post.getTags()) : Collections.emptySet();
-        Set<String> matchedTags = userTags.stream()
-                .filter(postTags::contains)
-                .collect(Collectors.toSet());
-
-        log.info("Сравнение тегов для пользователя {}: userTags={}, postTags={}, matched={}",
-                userId, userTags, postTags, matchedTags);
+        Set<String> matchedTags = userTags.stream().filter(postTags::contains).collect(Collectors.toSet());
 
         if (matchedTags.isEmpty()) {
-            log.warn("✗ Пост {} не подходит пользователю {} (теги не совпадают)", post.getId(), userId);
             return false;
         }
 
@@ -82,18 +67,12 @@ public class UserPostTrackingService {
         if (existing.isEmpty()) {
             UserPostDelivery delivery = new UserPostDelivery(userId, post.getId(), matchedTags);
             deliveryRepository.save(delivery);
-            log.info("✓ Создана запись доставки поста {} пользователю {} по тегам: {}",
-                    post.getId(), userId, matchedTags);
         }
 
-        log.info("✓✓✓ Пост {} ГОТОВ к отправке пользователю {} (совпадающие теги: {})",
-                post.getId(), userId, matchedTags);
+        log.info("Пост {} готов к отправке пользователю {} (теги: {})", post.getId(), userId, matchedTags);
         return true;
     }
 
-    /**
-     * Помечает пост как отправленный пользователю
-     */
     public void markAsSent(Long userId, String postId) {
         if (userId == null || postId == null) {
             log.warn("Попытка пометить пост как отправленный с некорректными параметрами");
@@ -105,18 +84,14 @@ public class UserPostTrackingService {
             delivery.setSentAt(LocalDateTime.now());
             deliveryRepository.save(delivery);
 
-            // Дублируем в Redis для быстрой проверки
+            // Дублируем в Redis
             cacheService.markAsSentToUser(userId, postId);
 
             log.debug("Пост {} помечен как отправленный пользователю {}", postId, userId);
         });
     }
 
-    /**
-     * Находит пользователей, которым нужно отправить этот пост
-     */
-    public List<Long> findUsersForPost(String postId, Set<String> postTags,
-                                       List<Subscription> allSubscriptions) {
+    public List<Long> findUsersForPost(String postId, Set<String> postTags, List<Subscription> allSubscriptions) {
         List<Long> targetUsers = new ArrayList<>();
 
         if (postId == null || postTags == null || postTags.isEmpty()) {
@@ -156,9 +131,6 @@ public class UserPostTrackingService {
         return targetUsers;
     }
 
-    /**
-     * Очистка старых записей о доставке
-     */
     public void cleanupOldDeliveries(int daysOld) {
         LocalDateTime olderThan = LocalDateTime.now().minusDays(daysOld);
         List<UserPostDelivery> oldDeliveries = deliveryRepository.findOldSentDeliveries(olderThan);

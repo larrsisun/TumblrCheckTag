@@ -19,35 +19,67 @@ public class TumblrPostDTO {
     private String body;
     private List<String> tags;
     private Long timestamp;
-    private Post.PostType type; // text, photo, quote, link, chat, audio, video, answer
+    private Post.PostType type; // text, photo, quote, link, video, answer
     private String photoUrl; // для фото постов
     private String videoUrl;
     private String sourceUrl; // для ссылок
     private String noteCount;
-    private String question;
-    private String answer;
+    private String question; // для постов типа answer
+    private String answer; // для постов типа answer
 
     private static HtmlDecoder htmlDecoder = new HtmlDecoder();
 
     public String getFormattedMessage() {
-        StringBuilder stringBuilder = new StringBuilder();
+        StringBuilder message = new StringBuilder();
 
-        // Описание поста (заголовок или текст)
+        // специальная обработка для постов типа answer
+        if (type == Post.PostType.ANSWER && question != null && !question.trim().isEmpty()) {
+            message.append("> *Вопрос:*\n");
+            String cleanQuestion = htmlDecoder.cleanHtml(question);
+            if (cleanQuestion != null && !cleanQuestion.isEmpty()) {
+                if (cleanQuestion.length() > 400) {
+                    cleanQuestion = cleanQuestion.substring(0, 397) + "...";
+                }
+                message.append(escapeMarkdown(cleanQuestion.trim()));
+            }
+            message.append("\n\n");
+
+            if (answer != null && !answer.trim().isEmpty()) {
+                message.append("> *Ответ:*\n");
+                String cleanAnswer = htmlDecoder.cleanHtml(answer);
+                if (cleanAnswer != null && !cleanAnswer.isEmpty()) {
+                    if (cleanAnswer.length() > 400) {
+                        cleanAnswer = cleanAnswer.substring(0, 397) + "...";
+                    }
+                    message.append(escapeMarkdown(cleanAnswer.trim()));
+                }
+                message.append("\n\n");
+            }
+            // Ссылка на пост
+            if (postURL != null) {
+                message.append("\n;; [Открыть пост](").append(postURL).append(")");
+            }
+
+            return message.toString();
+        }
+
+        // обычная обработка
         String description = getCleanText();
         if (description != null && !description.trim().isEmpty()) {
             // Ограничиваем длину описания
             if (description.length() > 500) {
                 description = description.substring(0, 497) + "...";
             }
-            stringBuilder.append(escapeMarkdown(description.trim()));
-            stringBuilder.append("\n\n");
+            message.append(escapeMarkdown(description.trim()));
+            message.append("\n\n");
         }
 
+        // Ссылка на пост
         if (postURL != null) {
-            stringBuilder.append("\n ;; [открыть пост](").append(postURL).append(")");
+            message.append("\n;; [Открыть пост](").append(postURL).append(")");
         }
 
-        return stringBuilder.toString();
+        return message.toString();
     }
 
     public String getCleanText() {

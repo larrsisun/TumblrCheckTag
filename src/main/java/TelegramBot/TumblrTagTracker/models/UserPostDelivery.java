@@ -11,8 +11,7 @@ import java.util.Set;
 @Table(name = "user_post_delivery", indexes = {
         @Index(name = "idx_user_post", columnList = "user_id,post_id", unique = true),
         @Index(name = "idx_was_sent", columnList = "was_sent"),
-        @Index(name = "idx_user_id", columnList = "user_id")
-})
+        @Index(name = "idx_user_id", columnList = "user_id")})
 @Getter
 @Setter
 public class UserPostDelivery {
@@ -28,10 +27,10 @@ public class UserPostDelivery {
     private String postId;
 
     @Column(name = "was_sent", nullable = false)
-    private Boolean wasSent = false;
+    private Boolean wasSent;
 
     @Column(name = "matched_tags", columnDefinition = "TEXT")
-    private String matchedTags; // теги, по которым пост подошел пользователю
+    private String matchedTags;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -48,6 +47,7 @@ public class UserPostDelivery {
         this();
         this.userId = userId;
         this.postId = postId;
+
         if (matchedTags != null && !matchedTags.isEmpty()) {
             this.matchedTags = String.join(",", matchedTags);
         }

@@ -25,6 +25,7 @@ public class SubscriptionService {
     private static final Logger log = LoggerFactory.getLogger(SubscriptionService.class);
     private final SubscriptionRepository subscriptionRepository;
 
+    // для принудительного обновления тегов из БД
     @PersistenceContext
     private EntityManager entityManager;
 
@@ -50,8 +51,8 @@ public class SubscriptionService {
             Subscription newSub = new Subscription(chatID);
             return subscriptionRepository.save(newSub);
         } catch (DataAccessException e) {
-            log.error("Ошибка в базе данных при попытке подписать пользователя");
-            throw new DatabaseException("Не удалось подписаться из-за проблем с базой данных");
+            log.error("Ошибка в базе данных при попытке подписать пользователя.");
+            throw new DatabaseException("Не удалось подписаться из-за проблем с базой данных.");
         }
     }
 
@@ -63,11 +64,11 @@ public class SubscriptionService {
                 log.info("Пользователь {} отписан!", chatID);
                 return true;
             }
-            log.warn("Попытка отписать неподписанного пользователя {}", chatID);
+            log.warn("Попытка отписать неподписанного пользователя {}.", chatID);
             return false;
         } catch (DataAccessException e) {
-            log.error("Ошибка в базе данных при попытке отписать пользователя {}", chatID);
-            throw new DatabaseException("Не удалось отписать пользователя ввиду ошибки со стороны БД");
+            log.error("Ошибка в базе данных при попытке отписать пользователя {}.", chatID);
+            throw new DatabaseException("Не удалось отписать пользователя ввиду ошибки со стороны БД.");
         }
     }
 
@@ -76,13 +77,11 @@ public class SubscriptionService {
             Optional<Subscription> subscription = subscriptionRepository.findByChatID(chatID);
             return subscription.isPresent() && Boolean.TRUE.equals(subscription.get().getActive());
         } catch (DataAccessException e) {
-            log.error("Ошибка при попытке выяснить, подписан ли пользователь {}", chatID);
-            throw new DatabaseException("Не удалось узнать статус пользователя ввиду ошибки со стороны БД");
+            log.error("Ошибка при попытке выяснить, подписан ли пользователь {}.", chatID);
+            throw new DatabaseException("Не удалось узнать статус пользователя ввиду ошибки со стороны БД.");
         }
-
     }
 
-    // ИСПРАВЛЕНИЕ: Принудительно получаем свежие данные из БД
     @Transactional(readOnly = true)
     public Set<String> getTags(Long chatID) {
         try {
@@ -94,11 +93,13 @@ public class SubscriptionService {
                 return cachedSub.get().getTags();
             }
             return Set.of();
+
         } catch (DataAccessException e) {
-            log.error("Database error while getting tags for user {}", chatID, e);
+            log.error("Ошибка со стороны базы данных при попытке нахождения тегов для пользователя {}", chatID, e);
             return Set.of();
+
         } catch (Exception e) {
-            log.error("Error refreshing subscription for user {}", chatID, e);
+            log.error("Ошибка при попытке рефрешнуть теги для пользователя {}", chatID, e);
             // Fallback: пытаемся получить без refresh
             return getSubscription(chatID)
                     .map(Subscription::getTags)
@@ -112,13 +113,14 @@ public class SubscriptionService {
                     .orElseThrow(() -> new SubscriptionNotFoundException("Подписка не найдена, сначала подпишитесь (/subscribe)."));
             subscription.setTags(tags);
             Subscription saved = subscriptionRepository.save(subscription);
-            entityManager.flush(); // ИСПРАВЛЕНИЕ: Принудительно сбрасываем изменения в БД
+            entityManager.flush(); // Принудительно сбрасываем изменения в БД
             log.info("Теги пользователя {} обновлены: {}", chatId, tags);
             return saved;
+
         } catch (SubscriptionNotFoundException e) {
             throw e; // Пробрасываем дальше
         } catch (DataAccessException e) {
-            log.error("Database error while updating tags for user {}", chatId, e);
+            log.error("Ошибка со стороны БД при попытке обновить теги пользователя {}", chatId, e);
             throw new DatabaseException("Не удалось обновить теги. Попробуйте позже.");
         }
     }
