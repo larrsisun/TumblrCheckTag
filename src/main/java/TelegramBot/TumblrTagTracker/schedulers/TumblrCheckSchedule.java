@@ -44,13 +44,7 @@ public class TumblrCheckSchedule {
         this.notificationService = notificationService;
         this.postTrackingService = postTrackingService;
         this.userPostTrackingService = userPostTrackingService;
-        this.userExecutor = new ThreadPoolExecutor(
-                5,      // 5 постоянных потоков
-                20,     // максимум 20 потоков
-                60L, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(100), // Очередь на 100 задач
-                new ThreadPoolExecutor.CallerRunsPolicy() // Политика отказа
-        );
+        this.userExecutor = userExecutor;
     }
 
     @PreDestroy
