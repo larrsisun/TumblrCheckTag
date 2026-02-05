@@ -1,0 +1,47 @@
+# Ignore version control
+.git
+.gitignore
+.gitattributes
+
+# Ignore build outputs
+target/
+build/
+*.class
+*.jar
+*.war
+
+# Ignore IDE files
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.settings/
+.project
+.classpath
+
+# Ignore logs
+*.log
+logs/
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore config files (use environment variables instead)
+*.properties
+*.yml
+!application.yml.example
+
+# Ignore test files
+test/
+**/test/
+
+# Ignore documentation
+README.md
+HELP.md
+
+# Ignore Maven wrapper (will be downloaded during build)
+.mvn/
+mvnw
+mvnw.cmd

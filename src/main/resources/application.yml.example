@@ -1,0 +1,49 @@
+spring.application.name=TumblrTagTracker
+
+telegram.bot.token=
+telegram.bot.username=TumblrCheckTag_bot
+
+logging.level.org.telegram=DEBUG
+logging.level.com.example=DEBUG
+
+spring.datasource.driver-class-name=com.mysql.jdbc.Driver
+spring.datasource.url=
+spring.datasource.username=
+spring.datasource.password=
+
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQLDialect
+spring.jpa.properties.hibernate.show_sql=true
+spring.jpa.hibernate.ddl-auto=update
+
+spring.jpa.properties.hibernate.format_sql=true
+spring.jpa.properties.hibernate.use_sql_comments= false
+
+#logging.level.org.hibernate.SQL= DEBUG
+#logging.level.org.hibernate.type.descriptor.sql.BasicBinder= TRACE
+
+spring.docker.compose.enabled= false
+
+tumblr.api.key=
+tumblr.api.secret=
+
+spring.data.redis.host=localhost
+spring.data.redis.port=6379
+spring.data.redis.password=
+spring.data.redis.database=0
+
+spring.data.redis.lettuce.pool.max-active=8
+spring.data.redis.lettuce.pool.max-idle=8
+spring.data.redis.lettuce.pool.min-idle=0
+spring.data.redis.timeout=2000ms
+
+resilience4j.circuitbreaker.instances.tumblr.failure-rate-threshold=50
+resilience4j.circuitbreaker.instances.tumblr.wait-duration-in-open-state=60s
+resilience4j.circuitbreaker.instances.tumblr.sliding-window-size=10
+
+
+tumblr.filter.minimum.notes=5
+tumblr.filter.minimum.age.hours=1
+tumblr.filter.recheck.interval.hours=6
+tumblr.filter.cleanup.days=7
+tumblr.check.interval.ms=600000
+notification.delay.between.users.ms=1000
