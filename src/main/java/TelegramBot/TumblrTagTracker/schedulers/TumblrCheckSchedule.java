@@ -4,11 +4,10 @@ import TelegramBot.TumblrTagTracker.dto.TumblrPostDTO;
 import TelegramBot.TumblrTagTracker.models.Subscription;
 import TelegramBot.TumblrTagTracker.models.TrackedPost;
 import TelegramBot.TumblrTagTracker.services.*;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -34,17 +33,41 @@ public class TumblrCheckSchedule {
     private final UserPostTrackingService userPostTrackingService;
 
     // Пул потоков для параллельной отправки (по одному потоку на пользователя)
-    private final ExecutorService userExecutor = Executors.newCachedThreadPool();
+    private final ExecutorService userExecutor;
 
     @Autowired
     public TumblrCheckSchedule(SubscriptionService subscriptionService, TumblrService tumblrService,
                                NotificationService notificationService, PostTrackingService postTrackingService,
-                               UserPostTrackingService userPostTrackingService) {
+                               UserPostTrackingService userPostTrackingService, ExecutorService userExecutor) {
         this.subscriptionService = subscriptionService;
         this.tumblrService = tumblrService;
         this.notificationService = notificationService;
         this.postTrackingService = postTrackingService;
         this.userPostTrackingService = userPostTrackingService;
+        this.userExecutor = new ThreadPoolExecutor(
+                5,      // 5 постоянных потоков
+                20,     // максимум 20 потоков
+                60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(100), // Очередь на 100 задач
+                new ThreadPoolExecutor.CallerRunsPolicy() // Политика отказа
+        );
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        log.info("Shutting down user executor...");
+        userExecutor.shutdown();
+        try {
+            if (!userExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                userExecutor.shutdownNow();
+                if (!userExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                    log.error("User executor did not terminate");
+                }
+            }
+        } catch (InterruptedException e) {
+            userExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Scheduled(fixedDelay = 300000) // 5 минут
@@ -260,72 +283,54 @@ public class TumblrCheckSchedule {
     }
 
      // Каждый пользователь получает посты в своем собственном потоке с задержками
-    private void sendPostsToUsersAsync(Map<Long, List<TumblrPostDTO>> postsPerUser) {
-        AtomicInteger totalSent = new AtomicInteger(0);
-        AtomicInteger totalFailed = new AtomicInteger(0);
+     private void sendPostsToUsersAsync(Map<Long, List<TumblrPostDTO>> postsPerUser) {
+         AtomicInteger totalSent = new AtomicInteger(0);
+         AtomicInteger totalFailed = new AtomicInteger(0);
 
-        // Для каждого пользователя создаем отдельную задачу
-        List<CompletableFuture<Void>> userTasks = new ArrayList<>();
+         List<CompletableFuture<Void>> userTasks = new ArrayList<>();
 
-        for (Map.Entry<Long, List<TumblrPostDTO>> entry : postsPerUser.entrySet()) {
-            Long userId = entry.getKey();
-            List<TumblrPostDTO> posts = entry.getValue();
+         for (Map.Entry<Long, List<TumblrPostDTO>> entry : postsPerUser.entrySet()) {
+             Long userId = entry.getKey();
+             List<TumblrPostDTO> posts = entry.getValue();
 
-            // Создаем асинхронную задачу для этого пользователя
-            CompletableFuture<Void> userTask = CompletableFuture.runAsync(() -> {
+             CompletableFuture<Void> userTask = CompletableFuture.runAsync(() -> {
+                 for (int i = 0; i < posts.size(); i++) {
+                     TumblrPostDTO post = posts.get(i);
 
-                for (int i = 0; i < posts.size(); i++) {
-                    TumblrPostDTO post = posts.get(i);
+                     try {
+                         boolean sent = notificationService.sendPostToUser(userId, post);
 
-                    try {
-                        // Отправляем пост
-                        boolean sent = notificationService.sendPostToUser(userId, post);
+                         if (sent) {
+                             totalSent.incrementAndGet();
+                             userPostTrackingService.markAsSent(userId, post.getId());
+                             postTrackingService.markPostAsSent(post.getId());
+                         } else {
+                             totalFailed.incrementAndGet();
+                         }
 
-                        if (sent) {
-                            totalSent.incrementAndGet();
-                            userPostTrackingService.markAsSent(userId, post.getId());
-                            postTrackingService.markPostAsSent(post.getId());
-                        } else {
-                            totalFailed.incrementAndGet();
-                        }
+                         if (i < posts.size() - 1) {
+                             Thread.sleep(delayBetweenPosts.toMillis());
+                         }
 
-                        // Задержка между постами (кроме последнего)
-                        if (i < posts.size() - 1) {
-                            Thread.sleep(delayBetweenPosts);
-                        }
+                     } catch (InterruptedException e) {
+                         Thread.currentThread().interrupt();
+                         log.error("Отправка пользователю {} прервана", userId, e);
+                         break;
+                     } catch (Exception e) {
+                         totalFailed.incrementAndGet();
+                         log.error("Ошибка при отправке поста {} пользователю {}", post.getId(), userId, e);
+                     }
+                 }
 
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        log.error("Отправка пользователю {} прервана", userId, e);
-                        break;
-                    } catch (Exception e) {
-                        totalFailed.incrementAndGet();
-                        log.error("Ошибка при отправке поста {} пользователю {}", post.getId(), userId, e);
-                    }
-                }
+                 log.info("Завершена отправка постов пользователю {}", userId);
+             }, userExecutor).exceptionally(ex -> {
+                 log.error("Критическая ошибка при обработке пользователя {}", userId, ex);
+                 return null;
+             });
 
-                log.info("Завершена отправка постов пользователю {}", userId);}, userExecutor); // Выполняется в отдельном потоке
-
-            userTasks.add(userTask);
-        }
-
-        // Ждем завершения всех задач
-        CompletableFuture<Void> allTasks = CompletableFuture.allOf(userTasks.toArray(new CompletableFuture[0]));
-
-        try {
-            // Ждем завершения с таймаутом (чтобы не зависнуть навсегда)
-            allTasks.get(30, TimeUnit.MINUTES);
-
-            log.info("=== ✓ ВСЕ ПОЛЬЗОВАТЕЛИ ОБРАБОТАНЫ ===");
-            log.info("Успешно отправлено: {}", totalSent.get());
-            log.info("Ошибок: {}", totalFailed.get());
-
-        } catch (TimeoutException e) {
-            log.error("Превышен таймаут ожидания отправки (30 минут)", e);
-        } catch (Exception e) {
-            log.error("!!! Критическая ошибка при отправке", e);
-        }
-    }
+             userTasks.add(userTask);
+         }
+     }
 
     private TumblrPostDTO createDTOFromTrackedPost(TrackedPost tracked) {
         TumblrPostDTO dto = new TumblrPostDTO();

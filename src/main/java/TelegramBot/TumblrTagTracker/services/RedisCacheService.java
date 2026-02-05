@@ -29,7 +29,7 @@ public class RedisCacheService {
             String key = PREFIX_USER_POST + userId + ":" + postId;
             Boolean exists = redisTemplate.hasKey(key);
             return Boolean.TRUE.equals(exists);
-        } catch (Exception e) {
+        } catch (RedisCacheException e) {
             log.error("Не удалось проверить отправку поста {} пользователю {}", postId, userId, e);
             return false;
         }
@@ -43,7 +43,7 @@ public class RedisCacheService {
             log.debug("Пост {} помечен как отправленный пользователю {} (TTL: {})",
                     postId, userId, DEFAULT_TTL);
             return Boolean.TRUE.equals(wasSet);
-        } catch (Exception e) {
+        } catch (RedisCacheException e) {
             log.error("Не удалось пометить пост {} для пользователя {}", postId, userId, e);
             return false;
         }
