@@ -1,45 +1,99 @@
-spring.application.name=TumblrTagTracker
+spring:
+  application:
+    name: TumblrTagTracker
 
-telegram.bot.token=${TELEGRAM_BOT_TOKEN}
-telegram.bot.username=${TELEGRAM_BOT_USERNAME}
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useSSL=true&requireSSL=false&serverTimezone=UTC
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
 
-spring.main.banner-mode=off
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        show_sql: ${SHOW_SQL:false}
+        format_sql: true
+        use_sql_comments: false
+    hibernate:
+      ddl-auto: ${DDL_AUTO:update}
 
-logging.level.org.telegram=DEBUG
-logging.level.com.example=DEBUG
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+      password: ${REDIS_PASSWORD}
+      database: ${REDIS_DATABASE}
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+      timeout: 2000ms
 
-spring.datasource.driver-class-name=com.mysql.jdbc.Driver
-spring.datasource.url=jdbc:mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}?useSSL=true&requireSSL=false&serverTimezone=UTC
-spring.datasource.username=${DB_USERNAME}
-spring.datasource.password=${DB_PASSWORD}
+  docker:
+    compose:
+      enabled: false
 
-spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQLDialect
-spring.jpa.properties.hibernate.show_sql=${SHOW_SQL}
-spring.jpa.hibernate.ddl-auto=validate
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN}
+    username: ${TELEGRAM_BOT_USERNAME}
 
-spring.jpa.properties.hibernate.format_sql=true
-spring.jpa.properties.hibernate.use_sql_comments= false
+tumblr:
+  api:
+    key: ${TUMBLR_API_KEY}
+    secret: ${TUMBLR_API_SECRET:}
+  filter:
+    minimum:
+      notes: ${MIN_NOTES:5}
+      age:
+        hours: ${MIN_AGE_HOURS:1}
+    recheck:
+      interval:
+        hours: ${RECHECK_HOURS:6}
+    cleanup:
+      days: ${CLEANUP_DAYS:7}
+  check:
+    interval:
+      ms: 600000
+  cleanup:
+    cron: 0 0 3 * * ?
 
-logging.level.org.hibernate.SQL= DEBUG
-logging.level.org.hibernate.type.descriptor.sql.BasicBinder= TRACE
+notification:
+  delay:
+    between:
+      users:
+        ms: 1000
 
-spring.docker.compose.enabled=false
+resilience4j:
+  circuitbreaker:
+    instances:
+      tumblr:
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        sliding-window-size: 10
+      telegram:
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        sliding-window-size: 10
+  retry:
+    instances:
+      telegram:
+        max-attempts: 3
+        wait-duration: 1s
 
-tumblr.api.key=${TUMBLR_API_KEY}
-tumblr.api.secret=${TUMBLR_API_SECRET}
-  
-  
-  # Redis Configuration
-spring.data.redis.host=${REDIS_HOST}
-spring.data.redis.port=${REDIS_PORT}
-spring.data.redis.password=${REDIS_PASSWORD}
-spring.data.redis.database=${REDIS_DATABASE}
-  
-  # Connection pool settings
-spring.data.redis.lettuce.pool.max-active=8
-spring.data.redis.lettuce.pool.max-idle=8
-spring.data.redis.lettuce.pool.min-idle=0
-spring.data.redis.timeout=2000ms
+logging:
+  level:
+    org:
+      telegram: ${LOG_LEVEL:INFO}
+      hibernate:
+        SQL: ${LOG_LEVEL:INFO}
+        type:
+          descriptor:
+            sql:
+              BasicBinder: ${LOG_LEVEL:INFO}
+    TelegramBot: ${APP_LOG_LEVEL:INFO}
 
 resilience4j.circuitbreaker.instances.tumblr.failure-rate-threshold=50
 resilience4j.circuitbreaker.instances.tumblr.wait-duration-in-open-state=60s
