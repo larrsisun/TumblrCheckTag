@@ -28,10 +28,10 @@ public class PostTrackingService {
     @Value("${tumblr.filter.minimum.age.hours}")
     private int minimumAgeHours;
 
-    @Value("${tumblr.filter.recheck.interval.hours:6}")
+    @Value("${tumblr.filter.recheck.interval.hours}")
     private int recheckIntervalHours;
 
-    @Value("${tumblr.filter.cleanup.days:7}")
+    @Value("${tumblr.filter.cleanup.days}")
     private int cleanupAfterDays;
 
     private final TrackedPostRepository trackedPostRepository;
