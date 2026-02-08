@@ -6,8 +6,6 @@
   },
   "deploy": {
     "startCommand": "java -jar app.jar",
-    "healthcheckPath": "/actuator/health",
-    "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   }

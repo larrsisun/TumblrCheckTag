@@ -29,10 +29,6 @@ RUN chown -R appuser:appuser /app
 # Переключаемся на непривилегированного пользователя
 USER appuser
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
-  CMD pgrep -f 'java.*app.jar' || exit 1
-
 # Запуск приложения
 ENTRYPOINT ["java", \
     "-XX:+UseContainerSupport", \
