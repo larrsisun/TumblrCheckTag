@@ -20,7 +20,8 @@ target/
 *.iws
 *.iml
 *.ipr
-*.yml
+env.yml
+docker-compose.yml
 *.properties
 test/
 
