@@ -87,7 +87,15 @@ public class NotificationService {
         message.setParseMode("MarkdownV2");
         message.disableWebPagePreview();
 
-        bot.execute(message);
+        try {
+            bot.execute(message);
+        } catch (TelegramApiException e) {
+            log.error("Ошибка sendTextMessage для чата {}: {}", chatID, e.getMessage());
+            log.debug("Текст сообщения (первые 200 символов): {}",
+                    text.substring(0, Math.min(200, text.length())));
+            throw e;
+        }
+
     }
 
     private void sendPhotoWithCaption(Long chatID, String photoURL, String caption) throws TelegramApiException {
@@ -116,6 +124,7 @@ public class NotificationService {
             log.error("Ошибка sendPhotoWithCaption для чата {}: {}", chatID, e.getMessage());
             log.debug("Photo URL: {}", photoURL);
             log.debug("Caption length: {}", caption != null ? caption.length() : 0);
+            throw e;
         }
     }
 
@@ -144,6 +153,7 @@ public class NotificationService {
             log.error("Ошибка sendVideoWithCaption для чата {}: {}", chatID, e.getMessage());
             log.debug("Video URL: {}", videoURL);
             log.debug("Caption length for: {}", caption != null ? caption.length() : 0);
+            throw e;
         }
 
     }
