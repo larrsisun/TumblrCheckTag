@@ -110,7 +110,13 @@ public class NotificationService {
             photo.setParseMode("MarkdownV2");
         }
 
-        bot.execute(photo);
+        try {
+            bot.execute(photo);
+        } catch (TelegramApiException e) {
+            log.error("Ошибка sendPhotoWithCaption для чата {}: {}", chatID, e.getMessage());
+            log.debug("Photo URL: {}", photoURL);
+            log.debug("Caption length: {}", caption != null ? caption.length() : 0);
+        }
     }
 
     private void sendVideoWithCaption(Long chatID, String videoURL, String caption) throws TelegramApiException {
@@ -132,7 +138,14 @@ public class NotificationService {
             video.setParseMode("MarkdownV2");
         }
 
-        bot.execute(video);
+        try {
+            bot.execute(video);
+        } catch (TelegramApiException e) {
+            log.error("Ошибка sendVideoWithCaption для чата {}: {}", chatID, e.getMessage());
+            log.debug("Video URL: {}", videoURL);
+            log.debug("Caption length for: {}", caption != null ? caption.length() : 0);
+        }
+
     }
 
     private boolean fallbackSendMessage(Long chatID, TumblrPostDTO post, Exception e) {
