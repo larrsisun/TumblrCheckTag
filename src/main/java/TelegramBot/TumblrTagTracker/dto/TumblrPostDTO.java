@@ -69,7 +69,7 @@ public class TumblrPostDTO {
                 description = description.substring(0, 497) + "...";
             }
             message.append(escapeMarkdown(description.trim()));
-            message.append("\n\n");
+            message.append("\n");
         }
 
         // Ссылка на пост
