@@ -4,7 +4,7 @@ spring:
 
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${DATABASE_URL}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    url: ${DATABASE_URL}
 
   jpa:
     properties:
@@ -41,17 +41,17 @@ telegram:
 tumblr:
   api:
     key: ${TUMBLR_API_KEY}
-    secret: ${TUMBLR_API_SECRET:}
+    secret: ${TUMBLR_API_SECRET}
   filter:
     minimum:
-      notes: ${MIN_NOTES:5}
+      notes: ${MIN_NOTES}
       age:
-        hours: ${MIN_AGE_HOURS:1}
+        hours: ${MIN_AGE_HOURS}
     recheck:
       interval:
-        hours: ${RECHECK_HOURS:6}
+        hours: ${RECHECK_HOURS}
     cleanup:
-      days: ${CLEANUP_DAYS:7}
+      days: ${CLEANUP_DAYS}
   check:
     interval:
       ms: 600000
